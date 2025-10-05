@@ -27,6 +27,13 @@ python3 -m venv venv
 source venv/bin/activate
 pip install supabase python-dotenv
 
+
+SUPABASE_URL=your_project_url
+SUPABASE_ANON_KEY=your_anon_key
+
+python3 test_connection.py
+
+
 ## Join Query Test
 
 Tested a join between `items` and `organizations` to verify relational integrity and RLS read permissions.
@@ -40,9 +47,3 @@ FROM items
 JOIN organizations
   ON items.org_id = organizations.id;
 
-
-
-SUPABASE_URL=your_project_url
-SUPABASE_ANON_KEY=your_anon_key
-
-python3 test_connection.py
