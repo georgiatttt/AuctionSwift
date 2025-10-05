@@ -1,3 +1,20 @@
+# Python / venv
 venv/
-.env
 __pycache__/
+*.pyc
+
+# Env files (DO NOT COMMIT)
+.env
+.env.*
+
+# Node (future frontends)
+node_modules/
+dist/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Build/coverage (if added later)
+coverage/
+build/
