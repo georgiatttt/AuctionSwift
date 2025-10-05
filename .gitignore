@@ -1,14 +1,20 @@
-# env & secrets
-.env
-.env.*
-# Python
+# Python / venv
+venv/
 __pycache__/
 *.pyc
-#. DS_Store (mac)
-.DS_Store
-# Node (if you add a frontend later)
+
+# Env files (DO NOT COMMIT)
+.env
+.env.*
+
+# Node (future frontends)
 node_modules/
 dist/
-venv/
-.env
-__pycache__/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Build/coverage (if added later)
+coverage/
+build/
