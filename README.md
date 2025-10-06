@@ -84,7 +84,7 @@ All policy definitions live in `sql/rls_policies.sql`.
 └── README.md # this file
 
 ```
-
+> Copy `.env.example` to `.env` and fill in your Supabase credentials before running scripts.
 
 
 
