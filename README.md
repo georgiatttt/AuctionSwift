@@ -1,9 +1,8 @@
 # AuctionSwift DataBase
-## Overview
+## Database Design
+### Overview
 This repository provides a minimal, end-to-end setup to validate connectivity between a local Python environment and a Supabase (PostgreSQL) database with **Row Level Security (RLS)**. It includes a concise schema, seed data, a view for convenient reads, and scripts to (1) load environment variables, (2) connect with the anon key, (3) read data permitted by RLS, and (4) attempt a write that should be **blocked** under RLS. Use this as a quick sanity check before integrating the database into a larger app.
 
-
-## Database Design
 
 ### Entity Relationship Diagram
 
@@ -36,7 +35,7 @@ This repository provides a minimal, end-to-end setup to validate connectivity be
 
 ---
 
-## Security Model (RLS)
+### Security Model (RLS)
 
 RLS is **enabled** on: `organizations`, `profiles`, `items`, `item_images`, `comps`, `price_suggestions`.
 
