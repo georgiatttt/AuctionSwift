@@ -5,32 +5,50 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { ActionTypes, useAuction } from '../context/AuctionContext';
-import { v4 as uuidv4 } from 'uuid';
+import { createAuction } from '../services/api';
 
 export function NewAuctionPage() {
   const [auctionName, setAuctionName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const { dispatch } = useAuction();
   const navigate = useNavigate();
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     
     if (!auctionName.trim()) {
       return;
     }
 
-    const newAuctionId = uuidv4();
-    
-    dispatch({
-      type: ActionTypes.CREATE_AUCTION,
-      payload: {
-        auction_id: newAuctionId,
-        auction_name: auctionName.trim()
-      }
-    });
+    setLoading(true);
+    setError('');
 
-    // Navigate to the new auction detail page
-    navigate(`/auction/${newAuctionId}`);
+    try {
+      // TODO: Get profile_id from auth context when user login is implemented
+      // For demo, using a hardcoded profile_id - replace with actual logged-in user
+      const DEMO_PROFILE_ID = '50b07313-7b97-42c4-b020-5f8085483ea9';
+      
+      // Call the backend API to create auction
+      const auction = await createAuction(DEMO_PROFILE_ID, auctionName.trim());
+      
+      // Update local state
+      dispatch({
+        type: ActionTypes.CREATE_AUCTION,
+        payload: {
+          auction_id: auction.auction_id,
+          auction_name: auction.auction_name,
+          profile_id: auction.profile_id,
+          created_at: auction.created_at
+        }
+      });
+
+      // Navigate to the new auction detail page
+      navigate(`/auction/${auction.auction_id}`);
+    } catch (err) {
+      setError(err.message || 'Failed to create auction');
+      setLoading(false);
+    }
   };
 
   return (
@@ -51,6 +69,12 @@ export function NewAuctionPage() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {error && (
+              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
+                {error}
+              </div>
+            )}
+            
             <div>
               <Label htmlFor="auction-name">Auction Name</Label>
               <Input
@@ -60,6 +84,7 @@ export function NewAuctionPage() {
                 placeholder="e.g., John's Estate Sale, Spring Collection"
                 className="mt-2"
                 autoFocus
+                disabled={loading}
               />
             </div>
 
@@ -69,15 +94,16 @@ export function NewAuctionPage() {
                 variant="outline"
                 onClick={() => navigate('/')}
                 className="flex-1"
+                disabled={loading}
               >
                 Cancel
               </Button>
               <Button
                 type="submit"
-                disabled={!auctionName.trim()}
+                disabled={!auctionName.trim() || loading}
                 className="flex-1"
               >
-                Create Auction
+                {loading ? 'Creating...' : 'Create Auction'}
               </Button>
             </div>
           </form>

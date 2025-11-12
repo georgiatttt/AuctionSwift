@@ -1,11 +1,14 @@
 import { useCallback, useState } from 'react';
-import { Upload, X } from 'lucide-react';
+import { Upload, X, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 
-export function ImageDropzone({ onImageUpload, existingImage, onRemove }) {
+export function ImageDropzone({ onImageUpload, existingImage, onRemove, itemId }) {
   const [isDragging, setIsDragging] = useState(false);
   const [imagePreview, setImagePreview] = useState(existingImage || null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState(null);
+  const [uploadedFile, setUploadedFile] = useState(null);
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
@@ -34,17 +37,45 @@ export function ImageDropzone({ onImageUpload, existingImage, onRemove }) {
     }
   }, []);
 
-  const processFile = (file) => {
-    // Generate a mock placeholder URL (in real app, would upload to server)
-    const mockUrl = `https://placehold.co/400x300/gray/white?text=${encodeURIComponent(file.name.substring(0, 20))}`;
-    setImagePreview(mockUrl);
+  const processFile = async (file) => {
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setUploadError('Please upload an image file');
+      return;
+    }
+
+    // Validate file size (10MB max)
+    const maxSize = 10 * 1024 * 1024; // 10MB in bytes
+    if (file.size > maxSize) {
+      setUploadError('File size must be less than 10MB');
+      return;
+    }
+
+    setUploadError(null);
+    
+    // Show preview immediately using local file URL
+    const localPreviewUrl = URL.createObjectURL(file);
+    setImagePreview(localPreviewUrl);
+    
+    // Store the file for later upload
+    setUploadedFile(file);
+    
+    // Pass the file object to parent component
     if (onImageUpload) {
-      onImageUpload(mockUrl);
+      onImageUpload(file);
     }
   };
 
   const handleRemove = () => {
+    // Revoke the object URL to free memory
+    if (imagePreview && imagePreview.startsWith('blob:')) {
+      URL.revokeObjectURL(imagePreview);
+    }
+    
     setImagePreview(null);
+    setUploadedFile(null);
+    setUploadError(null);
+    
     if (onRemove) {
       onRemove();
     }
@@ -52,6 +83,12 @@ export function ImageDropzone({ onImageUpload, existingImage, onRemove }) {
 
   return (
     <div className="w-full">
+      {uploadError && (
+        <div className="mb-2 p-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded">
+          {uploadError}
+        </div>
+      )}
+      
       {imagePreview ? (
         <div className="relative w-full h-32 rounded-lg overflow-hidden border-2 border-border">
           <img
@@ -59,12 +96,18 @@ export function ImageDropzone({ onImageUpload, existingImage, onRemove }) {
             alt="Preview"
             className="w-full h-full object-cover"
           />
+          {isUploading && (
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+              <Loader2 className="h-6 w-6 text-white animate-spin" />
+            </div>
+          )}
           <Button
             type="button"
             variant="destructive"
             size="sm"
             className="absolute top-2 right-2"
             onClick={handleRemove}
+            disabled={isUploading}
           >
             <X className="h-3 w-3" />
           </Button>

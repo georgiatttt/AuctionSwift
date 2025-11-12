@@ -6,6 +6,12 @@ import { useAuction } from '../context/AuctionContext';
 export function ItemCard({ item }) {
   const { state } = useAuction();
 
+  console.log('🎴 ItemCard rendering:', {
+    title: item.title,
+    hasAiDescription: !!item.ai_description,
+    ai_description: item.ai_description
+  });
+
   // Get the first image for this item
   const itemImage = state.itemImages.find(img => img.item_id === item.item_id);
   
@@ -14,15 +20,17 @@ export function ItemCard({ item }) {
 
   return (
     <Card className="overflow-hidden">
-      <div className="flex flex-col md:flex-row">
+      <div className="flex flex-col md:flex-row h-full">
         {/* Image Section */}
-        <div className="w-full md:w-40 h-40 bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+        <div className="w-full md:w-64 md:min-h-full bg-muted flex items-center justify-center shrink-0 p-4">
           {itemImage ? (
-            <img
-              src={itemImage.url}
-              alt={item.title}
-              className="w-full h-full object-cover object-center"
-            />
+            <div className="w-full h-full flex items-center justify-center">
+              <img
+                src={itemImage.url}
+                alt={item.title}
+                className="max-w-full max-h-full object-contain"
+              />
+            </div>
           ) : (
             <div className="text-muted-foreground text-sm">No image</div>
           )}
@@ -30,11 +38,11 @@ export function ItemCard({ item }) {
 
         {/* Content Section */}
         <div className="flex-1">
-          <CardHeader className="pb-3 pt-3">
+          <CardHeader className="pb-3 pt-4">
             <div className="flex items-start justify-between">
               <div>
-                <CardTitle className="text-lg">{item.title}</CardTitle>
-                <CardDescription className="text-xs">
+                <CardTitle className="text-xl">{item.title}</CardTitle>
+                <CardDescription className="text-sm mt-1">
                   {item.brand} {item.year && `• ${item.year}`}
                 </CardDescription>
               </div>
@@ -42,24 +50,38 @@ export function ItemCard({ item }) {
           </CardHeader>
 
           <CardContent className="pt-0">
-            {item.description && (
-              <p className="text-sm text-muted-foreground mb-3">{item.description}</p>
+            {item.ai_description && (
+              <div className="mb-3 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                <div className="flex items-start gap-2">
+                  <span className="text-blue-600 font-semibold text-xs uppercase tracking-wide">AI Description</span>
+                </div>
+                <p className="text-sm text-gray-800 mt-1 leading-relaxed">{item.ai_description}</p>
+              </div>
             )}
 
             {itemComps.length > 0 && (
               <>
                 <Separator className="my-3" />
                 <div>
-                  <h4 className="text-sm font-semibold mb-2">Recent Comps</h4>
+                  <h4 className="text-sm font-semibold mb-2">Recent Comps (Top 3)</h4>
                   <div className="space-y-1.5">
-                    {itemComps.map(comp => (
-                      <div key={comp.id} className="flex items-center justify-between text-sm">
+                    {itemComps.slice(0, 3).map((comp, index) => (
+                      <div key={comp.id || index} className="flex items-center justify-between text-sm">
                         <div className="flex items-center gap-2">
-                          <Badge variant="secondary" className="text-xs">{comp.source}</Badge>
+                          <a 
+                            href={comp.source_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="hover:opacity-80 transition-opacity"
+                          >
+                            <Badge variant="secondary" className="text-xs cursor-pointer">
+                              {comp.source}
+                            </Badge>
+                          </a>
                           <span className="text-muted-foreground text-xs">{comp.sold_at}</span>
                         </div>
                         <span className="font-semibold text-sm">
-                          {comp.currency} ${comp.sold_price.toLocaleString()}
+                          {comp.currency} ${comp.sold_price.toFixed(2)}
                         </span>
                       </div>
                     ))}
