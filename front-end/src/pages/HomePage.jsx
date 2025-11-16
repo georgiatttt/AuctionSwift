@@ -151,7 +151,7 @@ export function HomePage() {
       {/* ============================================ */}
       <section className="flex justify-center py-24">
         <motion.div whileHover={{ scale: 1.05 }} className="relative group">
-          <Link to="/new">
+          <Link to="/login">
             <button className="px-12 py-5 text-xl font-semibold bg-white text-black rounded-full shadow-2xl flex items-center gap-2 relative z-20">
               Get Started <ArrowRight className="w-6 h-6" />
             </button>
