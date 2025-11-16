@@ -7,9 +7,29 @@ import { ScrollArea } from './ui/scroll-area';
 import { Separator } from './ui/separator';
 import { useAuction } from '../context/AuctionContext';
 import { cn } from '../lib/utils';
+import { supabase } from "../lib/supabaseClient";
+import { useAuth } from "../context/AuthContext";
+
+
 
 export function Sidebar({ onSearchClick, onPlanClick, onSettingsClick, onHelpClick }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const handleLogout = async () => {
+    try {
+      // 1. Sign out the user from Supabase
+      await supabase.auth.signOut();
+
+      // 2. Close the dropdown menu
+      setShowProfileMenu(false);
+
+      // 3. Navigate back to homepage
+      navigate("/");
+
+    } catch (err) {
+      console.error("Error logging out:", err.message);
+    }
+  };
   const { state } = useAuction();
   const location = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -144,14 +164,30 @@ export function Sidebar({ onSearchClick, onPlanClick, onSettingsClick, onHelpCli
               className="p-3 flex items-center gap-3 hover:bg-accent transition-colors cursor-pointer"
               onClick={() => setShowProfileMenu(!showProfileMenu)}
             >
-              <div className="h-8 w-8 rounded-full bg-blue-200 flex items-center justify-center flex-shrink-0">
-                <span className="text-sm font-semibold text-blue-900">JD</span>
+            {/* Avatar with initials */}
+            <div className="h-8 w-8 rounded-full bg-blue-200 flex items-center justify-center flex-shrink-0">
+              <span className="text-sm font-semibold text-blue-900">
+                {user?.user_metadata?.full_name
+                  ? user.user_metadata.full_name
+                      .split(" ")
+                      .map(word => word[0])
+                      .join("")
+                      .toUpperCase()
+                  : "U"}
+              </span>
+            </div>
+
+            {/* Name + Email */}
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium truncate">
+                {user?.user_metadata?.full_name || "Unknown User"}
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">John Doe</div>
-                <div className="text-xs text-muted-foreground truncate">john@example.com</div>
+              <div className="text-xs text-muted-foreground truncate">
+                {user?.email || "no-email"}
               </div>
             </div>
+
+          </div>
 
             {/* Profile Dropdown Menu */}
             {showProfileMenu && (
@@ -199,11 +235,7 @@ export function Sidebar({ onSearchClick, onPlanClick, onSettingsClick, onHelpCli
                 <Separator />
                 <button
                   className="w-full px-3 py-2.5 flex items-center gap-3 hover:bg-accent transition-colors text-sm text-destructive"
-                  onClick={() => {
-                    setShowProfileMenu(false);
-                    // Add logout logic here
-                    console.log('Logging out...');
-                  }}
+                  onClick={handleLogout}
                 >
                   <LogOut className="h-4 w-4" />
                   <span>Log out</span>
