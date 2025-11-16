@@ -20,7 +20,7 @@ export function LoginPage() {
       });
       if (error) throw error;
       console.log("Logged in user:", data.user);
-      navigate("/");
+      navigate("/dashboard");
     } catch (err) {
       console.error("Login failed:", err);
       setError(err.message || "Login failed. Please try again.");
