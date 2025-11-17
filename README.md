@@ -142,3 +142,8 @@ FROM items
 JOIN organizations
   ON items.org_id = organizations.id;
 ```
+
+## Team Contributions (see commits for details)
+Ahmmed: homepage
+Georgia: login 
+John: agent 
