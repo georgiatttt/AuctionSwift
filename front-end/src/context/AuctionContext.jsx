@@ -1,32 +1,29 @@
-// Import React hooks and utilities
+// import react hooks
 import { createContext, useContext, useReducer, useEffect } from 'react';
-// Import mock data from the data folder
-import { mockAuctions, mockItems, mockItemImages, mockComps } from '../data/mockData';
 import { fetchAllUserData } from '../services/api';
 
-// Demo profile ID - replace with actual user ID when auth is implemented
+// demo profile id (replace with auth later)
 const DEMO_PROFILE_ID = '50b07313-7b97-42c4-b020-5f8085483ea9';
 
-// ---- INITIAL STATE ---- //
-// This is the starting data for our app
+// initial state
 const initialState = {
-  auctions: mockAuctions,        // List of all auctions
-  items: mockItems,              // List of all items
-  itemImages: mockItemImages,    // List of all item images
-  comps: mockComps,              // List of comparable sales
-  loading: true,                 // Loading state for initial data fetch
-  error: null                    // Error state
+  auctions: [],
+  items: [],
+  itemImages: [],
+  comps: [],
+  loading: true,
+  error: null
 };
 
-// ---- ACTION TYPES ---- //
-// These are all the actions we can perform on our data
+// action types
 export const ActionTypes = {
-  CREATE_AUCTION: 'CREATE_AUCTION',           // Create a new auction
-  ADD_ITEM: 'ADD_ITEM',                       // Add an item to an auction
-  UPDATE_ITEM: 'UPDATE_ITEM',                 // Edit an existing item
-  DELETE_ITEM: 'DELETE_ITEM',                 // Remove an item
-  ADD_ITEM_IMAGE: 'ADD_ITEM_IMAGE',           // Upload an image for an item
-  DELETE_ITEM_IMAGE: 'DELETE_ITEM_IMAGE',     // Remove an item's image
+  CREATE_AUCTION: 'CREATE_AUCTION',
+  DELETE_AUCTION: 'DELETE_AUCTION',
+  ADD_ITEM: 'ADD_ITEM',
+  UPDATE_ITEM: 'UPDATE_ITEM',
+  DELETE_ITEM: 'DELETE_ITEM',
+  ADD_ITEM_IMAGE: 'ADD_ITEM_IMAGE',
+  DELETE_ITEM_IMAGE: 'DELETE_ITEM_IMAGE',
   ADD_COMP: 'ADD_COMP',                       // Add a comparable sale
   LOAD_ALL_DATA: 'LOAD_ALL_DATA',             // Load all data from API
   SET_LOADING: 'SET_LOADING',                 // Set loading state
@@ -52,6 +49,23 @@ function auctionReducer(state, action) {
         ]
       };
 
+    // DELETE AUCTION (and cascade delete all related data)
+    case ActionTypes.DELETE_AUCTION:
+      const auctionIdToDelete = action.payload.auction_id;
+      return {
+        ...state,
+        auctions: state.auctions.filter(a => a.auction_id !== auctionIdToDelete),
+        items: state.items.filter(i => i.auction_id !== auctionIdToDelete),
+        itemImages: state.itemImages.filter(img => {
+          const item = state.items.find(i => i.item_id === img.item_id);
+          return item?.auction_id !== auctionIdToDelete;
+        }),
+        comps: state.comps.filter(comp => {
+          const item = state.items.find(i => i.item_id === comp.item_id);
+          return item?.auction_id !== auctionIdToDelete;
+        })
+      };
+
     // ADD NEW ITEM TO AUCTION
     case ActionTypes.ADD_ITEM:
       const newItem = {
@@ -59,9 +73,12 @@ function auctionReducer(state, action) {
         auction_id: action.payload.auction_id,
         title: action.payload.title,
         brand: action.payload.brand,
+        model: action.payload.model,
         year: action.payload.year,
+        status: action.payload.status,
         description: action.payload.description || '',
-        created_at: new Date().toISOString()
+        ai_description: action.payload.ai_description || '',
+        created_at: action.payload.created_at || new Date().toISOString()
       };
       return {
         ...state,
@@ -178,13 +195,7 @@ export function AuctionProvider({ children }) {
         
         const data = await fetchAllUserData(DEMO_PROFILE_ID);
         
-        console.log('📦 Loaded data from API:', {
-          auctions: data.auctions.length,
-          items: data.items.length,
-          comps: data.allComps.length
-        });
-        
-        // Extract item images from items
+        // extract item images from items
         const itemImages = [];
         data.items.forEach(item => {
           if (item.images && item.images.length > 0) {
@@ -199,9 +210,6 @@ export function AuctionProvider({ children }) {
             });
           }
         });
-        
-        console.log('🖼️  Extracted images:', itemImages.length);
-        console.log('Sample images:', itemImages.slice(0, 3));
         
         dispatch({
           type: ActionTypes.LOAD_ALL_DATA,

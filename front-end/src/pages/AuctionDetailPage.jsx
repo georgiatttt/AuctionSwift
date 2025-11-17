@@ -1,17 +1,27 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
-import { Download, FileSpreadsheet, FileText, Image } from 'lucide-react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Download, FileSpreadsheet, FileText, Image, Trash2 } from 'lucide-react';
 import { ItemMultiForm } from '../components/ItemMultiForm';
 import { ItemCard } from '../components/ItemCard';
 import { Separator } from '../components/ui/separator';
 import { Button } from '../components/ui/button';
 import { useAuction } from '../context/AuctionContext';
+import { deleteAuction } from '../services/api';
+import { ActionTypes } from '../context/AuctionContext';
 
 export function AuctionDetailPage() {
   const { auction_id } = useParams();
-  const { state } = useAuction();
+  const navigate = useNavigate();
+  const { state, dispatch } = useAuction();
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const exportMenuRef = useRef(null);
+
+  // Reset state when auction_id changes (navigating between auctions)
+  useEffect(() => {
+    setShowExportMenu(false);
+    setIsDeleting(false);
+  }, [auction_id]);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -34,9 +44,40 @@ export function AuctionDetailPage() {
   const auctionItems = state.items.filter(item => item.auction_id === auction_id);
 
   const handleExport = (format) => {
-    console.log(`Exporting as ${format}`);
-    setShowExportMenu(false);
     // Export logic will go here
+  };
+
+  const handleDeleteAuction = async () => {
+    const confirmDelete = window.confirm(
+      `Are you sure you want to delete "${auction.auction_name}"?\n\n` +
+      `This will permanently delete:\n` +
+      `• ${auctionItems.length} item(s)\n` +
+      `• All associated images\n` +
+      `• All comparable sales data\n\n` +
+      `This action cannot be undone.`
+    );
+
+    if (!confirmDelete) return;
+
+    setIsDeleting(true);
+    try {
+      await deleteAuction(auction_id);
+      
+      // Remove from local state
+      dispatch({
+        type: ActionTypes.DELETE_AUCTION,
+        payload: { auction_id }
+      });
+
+      // Navigate back to dashboard
+      navigate('/');
+      
+    } catch (error) {
+      console.error('Failed to delete auction:', error);
+      alert('Failed to delete auction. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   if (!auction) {
@@ -59,18 +100,18 @@ export function AuctionDetailPage() {
           </p>
         </div>
 
-        {/* Export Button */}
-        <div className="relative" ref={exportMenuRef}>
-          <Button
-            variant="outline"
-            onClick={() => setShowExportMenu(!showExportMenu)}
-            className="gap-2"
-          >
-            <Download className="h-4 w-4" />
-            Export
-          </Button>
+        {/* Action Buttons */}
+        <div className="flex gap-2">
+          <div className="relative" ref={exportMenuRef}>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setShowExportMenu(!showExportMenu)}
+            >
+              <Download className="h-4 w-4" />
+            </Button>
 
-          {/* Export Dropdown Menu */}
+            {/* Export Dropdown Menu */}
           {showExportMenu && (
             <div className="absolute right-0 top-full mt-2 bg-card border rounded-lg shadow-lg overflow-hidden w-56 z-10">
               <button
@@ -95,6 +136,17 @@ export function AuctionDetailPage() {
               </button>
             </div>
           )}
+          </div>
+
+          {/* Delete Button */}
+          <Button
+            variant="destructive"
+            size="icon"
+            onClick={handleDeleteAuction}
+            disabled={isDeleting}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
         </div>
       </div>
 

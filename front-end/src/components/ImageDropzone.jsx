@@ -82,19 +82,45 @@ export function ImageDropzone({ onImageUpload, existingImage, onRemove, itemId }
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full space-y-2">
       {uploadError && (
-        <div className="mb-2 p-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded">
+        <div className="p-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded">
           {uploadError}
         </div>
       )}
       
-      {imagePreview ? (
-        <div className="relative w-full h-32 rounded-lg overflow-hidden border-2 border-border">
+      {/* Always show dropzone */}
+      <div
+        className={cn(
+          "w-full h-32 rounded-lg border-2 border-dashed transition-colors cursor-pointer flex flex-col items-center justify-center gap-1 hover:border-primary hover:bg-accent/50",
+          isDragging ? "border-primary bg-accent/50" : "border-border"
+        )}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        onClick={() => document.getElementById(`file-input-${itemId}`)?.click()}
+      >
+        <Upload className="h-6 w-6 text-muted-foreground" />
+        <div className="text-center px-2">
+          <p className="text-xs font-medium">Drop image or click to upload</p>
+          <p className="text-xs text-muted-foreground">PNG, JPG up to 10MB</p>
+        </div>
+        <input
+          id={`file-input-${itemId}`}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFileInput}
+        />
+      </div>
+      
+      {/* Show preview thumbnail below dropzone when image is uploaded */}
+      {imagePreview && (
+        <div className="relative w-full h-24 rounded-lg overflow-hidden border-2 border-border bg-gray-50">
           <img
             src={imagePreview}
             alt="Preview"
-            className="w-full h-full object-cover"
+            className="w-full h-full object-contain"
           />
           {isUploading && (
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
@@ -105,36 +131,15 @@ export function ImageDropzone({ onImageUpload, existingImage, onRemove, itemId }
             type="button"
             variant="destructive"
             size="sm"
-            className="absolute top-2 right-2"
+            className="absolute top-1 right-1 h-6 w-6 p-0"
             onClick={handleRemove}
             disabled={isUploading}
           >
             <X className="h-3 w-3" />
           </Button>
-        </div>
-      ) : (
-        <div
-          className={cn(
-            "w-full h-32 rounded-lg border-2 border-dashed transition-colors cursor-pointer flex flex-col items-center justify-center gap-1 hover:border-primary hover:bg-accent/50",
-            isDragging ? "border-primary bg-accent/50" : "border-border"
-          )}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onClick={() => document.getElementById('file-input')?.click()}
-        >
-          <Upload className="h-6 w-6 text-muted-foreground" />
-          <div className="text-center px-2">
-            <p className="text-xs font-medium">Drop image or click to upload</p>
-            <p className="text-xs text-muted-foreground">PNG, JPG up to 10MB</p>
+          <div className="absolute bottom-1 left-1 bg-black/60 text-white px-2 py-0.5 rounded text-xs">
+            Preview
           </div>
-          <input
-            id="file-input"
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handleFileInput}
-          />
         </div>
       )}
     </div>

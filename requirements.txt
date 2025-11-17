@@ -1,16 +1,26 @@
-# Backend Dependencies
-fastapi>=0.121.0
-uvicorn[standard]>=0.38.0
-python-multipart>=0.0.20
+# Web Framework
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
 
 # Database & Storage
-supabase>=2.24.0
-python-dotenv>=1.2.0
+supabase==2.10.0
+postgrest==0.18.0
 
-# AI Integration
-openai>=2.7.0
+# AI & Machine Learning
+openai==1.55.3
+openai-agents==0.1.1
 
-# Web Scraping
-requests>=2.32.0
-beautifulsoup4>=4.14.0
+# Environment & Configuration
+python-dotenv==1.0.1
 
+# Data Validation
+pydantic==2.10.3
+
+# HTTP Client
+httpx==0.28.1
+
+# File Handling
+python-multipart==0.0.20
+
+# CORS
+fastapi[standard]

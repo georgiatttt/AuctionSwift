@@ -202,7 +202,6 @@ export function Sidebar({ onSearchClick, onPlanClick, onSettingsClick, onHelpCli
                   onClick={() => {
                     setShowProfileMenu(false);
                     // Add logout logic here
-                    console.log('Logging out...');
                   }}
                 >
                   <LogOut className="h-4 w-4" />
