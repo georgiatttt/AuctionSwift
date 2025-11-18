@@ -11,10 +11,6 @@ export function ItemCard({ item }) {
   const { state, dispatch } = useAuction();
 
   const handleDelete = async () => {
-    if (!confirm(`Are you sure you want to delete "${item.title}"? This will also delete all images and comps for this item.`)) {
-      return;
-    }
-
     try {
       await deleteItem(item.item_id);
       dispatch({

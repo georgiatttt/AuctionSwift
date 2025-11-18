@@ -418,7 +418,7 @@ export function ItemMultiForm({ auctionId }) {
       ]);
 
       setLoading(false);
-      alert(`✅ Successfully created ${createdItems.length} item(s) and found ${totalCompsAdded} comps!`);
+      // Success - items created and comps fetched
     } catch (err) {
       console.error('Error creating items:', err);
       setError(err.message || 'Failed to create items');
@@ -465,7 +465,7 @@ export function ItemMultiForm({ auctionId }) {
       <div className="space-y-4">
                 {/* Image Uploader */}
                 <div>
-                  <Label>Images (up to 5) - Item {itemTempId.substring(0, 8)}</Label>
+                  <Label>Images (up to 5)</Label>
                   <div className="mt-2">
                     <ImageUploadZone
                       key={`image-zone-${itemTempId}`}
