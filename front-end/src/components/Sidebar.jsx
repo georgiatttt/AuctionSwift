@@ -132,7 +132,9 @@ export function Sidebar({ onSearchClick, onPlanClick, onSettingsClick, onHelpCli
                   No auctions yet
                 </div>
               ) : (
-                state.auctions.map(auction => (
+                [...state.auctions]
+                  .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                  .map(auction => (
                   <Link
                     key={auction.auction_id}
                     to={`/auction/${auction.auction_id}`}

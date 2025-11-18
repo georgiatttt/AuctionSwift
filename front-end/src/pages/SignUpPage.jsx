@@ -39,7 +39,6 @@ export function SignUpPage() {
         },
       });
       if (error) throw error;
-      console.log("New user created:", data.user);
 
       setStatus("success");
       navigate("/login", { replace: true, state: { emailPrefill: form.email } });

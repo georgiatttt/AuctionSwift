@@ -1,149 +1,428 @@
-# AuctionSwift DataBase
-## Database Design
-### Overview
-This repository provides a minimal, end-to-end setup to validate connectivity between a local Python environment and a Supabase (PostgreSQL) database with **Row Level Security (RLS)**. It includes a concise schema, seed data, a view for convenient reads, and scripts to (1) load environment variables, (2) connect with the anon key, (3) read data permitted by RLS, and (4) attempt a write that should be **blocked** under RLS. Use this as a quick sanity check before integrating the database into a larger app.
+# AuctionSwift
 
+A full-stack auction management application for cataloging, pricing, and managing auction items using AI-powered descriptions and comparable sales analysis.
 
-### Entity Relationship Diagram
+## Tech Stack
 
-![ER Diagram](./docs/er-diagram.png)
+### Frontend
+- **React** with Vite
+- **TailwindCSS** + shadcn/ui components
+- **React Router** for navigation
+- **Supabase** for authentication and storage
 
+### Backend
+- **FastAPI** (Python)
+- **Supabase** PostgreSQL database
+- **OpenAI GPT-4o** for item descriptions
+- **OpenAI Agents SDK** for comparable sales generation
+- **Batch API** for cost-effective multi-item processing
 
-### Tables (schema: `public`)
-
-- **organizations** — tenant container  
-  **Columns:** `id` (uuid, PK), `name` (text), `created_at` (timestamptz)
-
-- **profiles** — user profile & org membership (maps to `auth.users.id`)  
-  **Columns:** `id` (uuid, PK), `org_id` (uuid, FK → organizations.id), `email` (text, unique), `role` (text), `created_at` (timestamptz)
-
-- **items** — example entity scoped to an organization  
-  **Columns:** `id` (uuid, PK), `org_id` (uuid, FK → organizations.id), `title` (text), `ai_description` (text), `brand` (text), `model` (text), `year` (int), `attrs` (jsonb), `status` (text), `start_price` (numeric), `reserve_price` (numeric), `hammer_price` (numeric), `sold_at` (timestamptz), `created_by` (uuid, FK → profiles.id), `created_at` (timestamptz)
-
-- **item_images** — images attached to items  
-  **Columns:** `id` (bigserial, PK), `item_id` (uuid, FK → items.id), `url` (text), `position` (int), `created_at` (timestamptz)
-
-- **comps** — comparable sales evidence per item  
-  **Columns:** `id` (bigserial, PK), `item_id` (uuid, FK → items.id), `source` (text), `source_url` (text), `sold_price` (numeric), `currency` (text), `sold_at` (date), `notes` (text), `created_at` (timestamptz)
-
-- **price_suggestions** — stored pricing guidance per item  
-  **Columns:** `id` (bigserial, PK), `item_id` (uuid, FK → items.id), `min_price` (numeric), `max_price` (numeric), `method` (text), `why` (text), `created_at` (timestamptz)
-
-### Views
-
-- **item_summary** — aggregates related info per item (e.g., latest price suggestion and comp list) to simplify read queries.
+### Database
+- **PostgreSQL** via Supabase
+- Row Level Security (RLS) enabled
+- Multi-tenant architecture with organizations
 
 ---
 
-### Security Model (RLS)
+## Features
 
-RLS is **enabled** on: `organizations`, `profiles`, `items`, `item_images`, `comps`, `price_suggestions`.
-
-- **profiles:** users can read/insert only the row that matches their `auth.uid()`.  
-- **organizations:** users can read organizations they belong to (via `profiles`).  
-- **items / item_images / comps / price_suggestions:** users can read/write only rows that belong to their organization (enforced via `org_id` or the parent item’s org).
-
-All policy definitions live in `sql/rls_policies.sql`.
-
----
-
-## Seed Data
-
-- One organization (e.g., “Acme Auctions”).  
-- One `profiles` row linking **your** auth user (replace placeholder in the seed script) to that organization.  
-- Sample `items`, `comps`, and a `price_suggestions` entry to verify reads/joins.
+- **Auction Management**: Create and manage multiple auctions
+- **Item Cataloging**: Add items with images, brand, model, year
+- **AI-Powered Descriptions**: Automatically generate item descriptions using GPT-4o
+- **Comparable Sales (Comps)**: AI agent finds similar sold items from eBay, Reverb, etc.
+- **Batch Processing**: Process 2+ items with 50% cost savings via OpenAI Batch API
+- **Image Management**: Upload up to 5 images per item to Supabase Storage
+- **Multi-tenant**: Organization-based access control with RLS
 
 ---
 
-## How It Works
-
-1. **Auth & identity:** Your authenticated user’s UUID (`auth.uid()`) must exist in `profiles` and be linked to an `org_id`.  
-2. **Org-scoped reads:** Selecting from `items` (and related tables) returns only rows for your organization.  
-3. **Writes under RLS:** Inserts/updates/deletes are allowed only if the target row belongs to your organization; anonymous clients are denied.  
-4. **Summary reads:** The `item_summary` view provides a read-optimized record that combines item details with the latest suggestion and comps.
-
-
-
-## Requirements
-- Python 3.10+
-- Supabase project URL + **anon** API key
-
-
-
-## Repository Structure
+## Project Structure
 
 ```
-├── test_connection.py # connect, read test, write attempt (RLS should block)
-├── check_env.py # verifies .env is loaded correctly
+AuctionSwift/
+├── .env                     # Environment variables (root level)
+├── requirements.txt         # Python dependencies (root level)
+├── backend/
+│   └── main.py              # FastAPI server with all endpoints
+├── front-end/
+│   ├── src/
+│   │   ├── components/      # React components
+│   │   ├── context/         # Global state management
+│   │   ├── pages/           # Route pages
+│   │   ├── lib/             # API client & utilities
+│   │   └── App.jsx          # Main app component
+│   └── package.json         # Frontend dependencies
 ├── sql/
-│ ├── schema.sql # tables, constraints, RLS policies
-│ └── seed.sql # sample data
-├── docs/
-│ └── er-diagram.png # ER diagram matching schema.sql
-├── .gitignore # excludes .env, venv/, etc.
-└── README.md # this file
-
+│   ├── schema.sql           # Database schema
+│   ├── rls_policies.sql     # Row Level Security policies
+│   ├── seed.sql             # Sample data
+│   └── views.sql            # Database views
+└── docs/
+    └── er-diagram.png       # Entity relationship diagram
 ```
-> Copy `.env.example` to `.env` and fill in your Supabase credentials before running scripts.
 
+---
 
+## Setup Instructions
 
-## Setup
+### Prerequisites
+- **Node.js** 18+ and npm
+- **Python** 3.10+
+- **Supabase** project (free tier works)
+- **OpenAI** API key
 
-### 1) Clone the repository
+### 1. Clone Repository
 ```bash
-
 git clone https://github.com/georgiatttt/AuctionSwift.git
 cd AuctionSwift
+```
 
-```
-**Create and activate a virtual environment**
-```
-python3 -m venv venv
-# macOS/Linux
-source venv/bin/activate
-# Windows (PowerShell)
-# .\venv\Scripts\Activate.ps1
-```
-**Install Dependencies**
-```
-pip install supabase python-dotenv
-```
-**Configure environment variables (local only; do NOT commit)**
+### 2. Database Setup
 
-Create a .env file in the project root:
+1. Create a Supabase project at [supabase.com](https://supabase.com)
+2. Go to **SQL Editor** in Supabase Dashboard
+3. Run the following SQL files in order:
+   - `sql/schema.sql` - Creates tables
+   - `sql/rls_policies.sql` - Sets up security policies
+   - `sql/views.sql` - Creates helper views
+   - `sql/seed.sql` - (Optional) Adds sample data
+
+### 3. Backend Setup
+
+```bash
+# From root directory
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: .\venv\Scripts\Activate.ps1
+
+# Install dependencies
+pip install -r requirements.txt
 ```
-SUPABASE_URL=your_project_url
+
+**Environment Variables (.env in root)**:
+```env
+SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your_anon_key
-```
-**Apply schema and seed data in Supabase**
-
-- Open ***Supabase*** -> ***SQL Editor***
-- Run sql/schema.sql
-- Run sql/seed.sql
-
-**How to Run**
-***Environment Check***
-```
-python check_env.py
-```
-***Connection & RLS verification***
-```
-python test_connection.py
-```
-## Join Query Test
-Validate relational integrity and RLS-permitted visibility:
-```
-SELECT 
-  items.title,
-  items.brand,
-  organizations.name AS organization_name
-FROM items
-JOIN organizations
-  ON items.org_id = organizations.id;
+SUPABASE_SERVICE_KEY=your_service_role_key
+OPENAI_API_KEY=your_openai_api_key
 ```
 
-## Team Contributions (see commits for details)
-Ahmmed: homepage
-Georgia: login 
-John: agent 
+### 4. Frontend Setup
+
+```bash
+cd front-end
+
+# Install dependencies
+npm install
+
+# Frontend uses Supabase client directly
+# Update src/lib/supabaseClient.js if needed
+```
+
+The frontend connects to Supabase using the anon key configured in `src/lib/supabaseClient.js`.
+
+### 5. Run the Application
+
+**Start Backend** (port 8081):
+```bash
+cd backend
+python main.py
+```
+
+**Start Frontend** (port 5173):
+```bash
+cd front-end
+npm run dev
+```
+
+Access the app at `http://localhost:5173`
+
+---
+
+## API Documentation
+
+Base URL: `http://localhost:8081`
+
+### Profile Endpoints
+
+#### Get All Profiles
+```http
+GET /api/profiles
+```
+Returns all user profiles with organization info.
+
+#### Create Profile
+```http
+POST /api/profiles
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "org_id": "uuid",
+  "role": "admin"
+}
+```
+
+### Auction Endpoints
+
+#### Get User's Auctions
+```http
+GET /api/auctions/{profile_id}
+```
+
+#### Create Auction
+```http
+POST /api/auctions
+Content-Type: application/json
+
+{
+  "profile_id": "uuid",
+  "auction_name": "Estate Sale 2024",
+  "auction_date": "2024-12-15",
+  "location": "Portland, OR"
+}
+```
+
+#### Delete Auction
+```http
+DELETE /api/auctions/{auction_id}
+```
+Cascades: deletes all items, images, and comps associated with auction.
+
+### Item Endpoints
+
+#### Get User's Items
+```http
+GET /api/items/{profile_id}
+```
+Returns items with images array included.
+
+#### Create Item
+```http
+POST /api/items
+Content-Type: application/json
+
+{
+  "auction_id": "uuid",
+  "title": "Fender Stratocaster",
+  "brand": "Fender",
+  "model": "Stratocaster",
+  "year": 1965,
+  "ai_description": "Vintage guitar in excellent condition",
+  "imageUrl1": "https://..."
+}
+```
+Creates item with initial placeholder image.
+
+#### Update Item
+```http
+PUT /api/items/{item_id}
+Content-Type: application/json
+
+{
+  "title": "Updated Title",
+  "brand": "Updated Brand",
+  ...
+}
+```
+
+#### Delete Item
+```http
+DELETE /api/items/{item_id}
+```
+Cascades: deletes all images and comps for this item.
+
+### Image Endpoints
+
+#### Upload Item Image
+```http
+POST /api/items/{item_id}/images
+Content-Type: multipart/form-data
+
+file: <image file>
+position: 1
+```
+Uploads to Supabase Storage, returns public URL.
+
+#### Update Image URL
+```http
+PUT /api/items/{item_id}/images/{image_id}
+Content-Type: application/json
+
+{
+  "url": "https://supabase.co/storage/..."
+}
+```
+
+#### Get Item Images
+```http
+GET /api/items/{item_id}/images
+```
+
+### AI Description Endpoint
+
+#### Generate Item Description
+```http
+POST /api/items/generate-description
+Content-Type: multipart/form-data
+
+image: <image file>
+title: "Fender Stratocaster"
+model: "Stratocaster"
+year: "1965"
+notes: "Vintage, excellent condition"
+```
+Uses **GPT-4o vision** to analyze image and generate professional description.
+
+### Comparable Sales (Comps) Endpoints
+
+#### Get Item Comps
+```http
+GET /api/comps/item/{item_id}
+```
+
+#### Generate Comps (Single Item)
+```http
+POST /api/comps/generate
+Content-Type: application/json
+
+{
+  "item_id": "uuid",
+  "brand": "Fender",
+  "model": "Stratocaster", 
+  "year": "1965",
+  "notes": ""
+}
+```
+Uses **OpenAI Agents SDK** to search for 3 comparable sales. Returns immediately with results.
+
+#### Generate Comps (Batch)
+```http
+POST /api/comps/batch
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "item_id": "uuid",
+      "brand": "Fender",
+      "model": "Stratocaster",
+      "year": "1965",
+      "notes": ""
+    },
+    ...
+  ]
+}
+```
+**Batch API for 2+ items** - 50% cheaper than individual requests. Returns all results in one response (no polling needed).
+
+Response includes:
+- `batch_id`: OpenAI batch identifier
+- `status`: "completed" or "failed"
+- `results`: Array of comp results per item
+- `successful`: Count of successful items
+- `total_items`: Total items processed
+
+#### Delete Comp
+```http
+DELETE /api/comps/{comp_id}
+```
+
+### User Data Endpoint
+
+#### Get All User Data
+```http
+GET /api/user/{profile_id}/all
+```
+Returns complete dataset for a user:
+- All auctions
+- All items (with images)
+- All comps
+
+Used for initial app load to hydrate state.
+
+---
+
+## Database Schema
+
+### Core Tables
+
+**auctions** - Auction events
+- `auction_id` (uuid, PK)
+- `profile_id` (uuid, FK → profiles)
+- `auction_name`, `auction_date`, `location`
+
+**items** - Auction items
+- `item_id` (uuid, PK)
+- `auction_id` (uuid, FK → auctions)
+- `title`, `brand`, `model`, `year`
+- `ai_description`, `status`
+
+**item_images** - Item photos (up to 5)
+- `image_id` (bigserial, PK)
+- `item_id` (uuid, FK → items)
+- `url`, `position`
+
+**comps** - Comparable sales
+- `comp_id` (bigserial, PK)
+- `item_id` (uuid, FK → items)
+- `source`, `source_url`, `sold_price`, `sold_at`
+
+**profiles** - User profiles
+- `profile_id` (uuid, PK)
+- `org_id` (uuid, FK → organizations)
+- `email`, `role`
+
+**organizations** - Multi-tenant organizations
+- `org_id` (uuid, PK)
+- `name`
+
+See `docs/er-diagram.png` for visual schema.
+
+---
+
+## Environment Variables Reference
+
+### Root .env File
+```env
+# Supabase
+SUPABASE_URL=https://xxxxx.supabase.co
+SUPABASE_KEY=eyJxxxx...  # Service role key for backend
+
+# OpenAI
+OPENAI_DESCRIPTION_KEY=sk-proj-xxxxx  # For GPT-4o descriptions
+OPENAI_COMPS_KEY=sk-proj-xxxxx        # For Agents SDK comps
+```
+
+### Frontend
+Configured in `front-end/src/lib/supabaseClient.js`:
+- Uses `SUPABASE_URL` and `SUPABASE_ANON_KEY`
+- No separate .env needed (hardcoded in client)
+
+---
+
+## Development Notes
+
+- **CORS**: Backend allows all origins (`*`) for development
+- **RLS**: Database uses Row Level Security - users can only access their org's data
+- **Image Storage**: All images stored in Supabase Storage bucket `item-images`
+- **AI Costs**: Batch API saves 50% on multi-item comp generation
+- **Port Conflicts**: Backend uses 8081 (not 8000) to avoid conflicts
+
+---
+
+## Assignment Context
+
+This project was built as a full-stack application demonstrating:
+- RESTful API design with FastAPI
+- React frontend with modern hooks and context
+- PostgreSQL database design with proper foreign keys
+- AI integration (OpenAI GPT-4o + Agents SDK)
+- Cloud storage and authentication (Supabase)
+- Multi-tenant security with RLS
+
+---
+
+## License
+
+MIT

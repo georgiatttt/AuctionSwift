@@ -1,5 +1,5 @@
 // API service for backend communication
-const API_BASE_URL = 'http://127.0.0.1:8080';
+const API_BASE_URL = 'http://127.0.0.1:8081';
 
 // Helper function to handle API responses
 const handleResponse = async (response) => {
@@ -129,13 +129,33 @@ export const updateItemImage = async (itemId, imageId, url) => {
 // COMPS API
 // ============================================
 
-export const getItemComps = async (itemId, limit = 10) => {
-  const response = await fetch(`${API_BASE_URL}/items/${itemId}/comps?limit=${limit}`);
+// Generate comps using AI agent
+export const generateComps = async (itemId, brand = null, model = null, year = null, notes = null) => {
+  const response = await fetch(`${API_BASE_URL}/comps`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      item_id: itemId,
+      brand,
+      model,
+      year,
+      notes
+    }),
+  });
   return handleResponse(response);
 };
 
+// Get saved comps for an item
 export const getSavedComps = async (itemId) => {
-  const response = await fetch(`${API_BASE_URL}/items/${itemId}/comps/saved`);
+  const response = await fetch(`${API_BASE_URL}/comps/${itemId}`);
+  return handleResponse(response);
+};
+
+// Legacy 130point scraper endpoint (deprecated, use generateComps instead)
+export const getItemComps = async (itemId, limit = 10) => {
+  const response = await fetch(`${API_BASE_URL}/items/${itemId}/comps?limit=${limit}`);
   return handleResponse(response);
 };
 
@@ -181,6 +201,59 @@ export const updateUserEmail = async (profileId, email) => {
   return handleResponse(response);
 };
 
+// ============================================
+// BATCH COMPS API
+// ============================================
+
+export const createCompsBatch = async (items) => {
+  /**
+   * Create a batch job for generating comps for multiple items
+   * @param {Array} items - Array of {item_id, brand, model, year, notes}
+   * @returns {Promise} - Batch job info with batch_id
+   */
+  const response = await fetch(`${API_BASE_URL}/comps/batch`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ items }),
+  });
+  return handleResponse(response);
+};
+
+export const getBatchStatus = async (batchId) => {
+  /**
+   * Check the status of a batch comps generation job
+   * @param {string} batchId - The batch job ID
+   * @returns {Promise} - Batch status info
+   */
+  const response = await fetch(`${API_BASE_URL}/comps/batch/${batchId}`);
+  return handleResponse(response);
+};
+
+export const getBatchResults = async (batchId, saveToDb = true) => {
+  /**
+   * Retrieve results from a completed batch job
+   * @param {string} batchId - The batch job ID
+   * @param {boolean} saveToDb - Whether to save comps to database
+   * @returns {Promise} - Batch results with all comps
+   */
+  const response = await fetch(`${API_BASE_URL}/comps/batch/${batchId}/results?save_to_db=${saveToDb}`);
+  return handleResponse(response);
+};
+
+export const cancelBatch = async (batchId) => {
+  /**
+   * Cancel an in-progress batch job
+   * @param {string} batchId - The batch job ID
+   * @returns {Promise} - Cancellation confirmation
+   */
+  const response = await fetch(`${API_BASE_URL}/comps/batch/${batchId}`, {
+    method: 'DELETE',
+  });
+  return handleResponse(response);
+};
+
 export const makePayment = async (profileId) => {
   const response = await fetch(`${API_BASE_URL}/payments?profile_id=${profileId}`, {
     method: 'POST',
@@ -205,33 +278,44 @@ export const fetchAllUserData = async (profileId) => {
     // Extract all item IDs to fetch comps
     const itemIds = items.map(item => item.item_id);
     
-    // Fetch saved comps for each item (from database, not scraper)
-    const compsPromises = itemIds.map(itemId => 
-      getSavedComps(itemId).catch(err => {
-        console.warn(`Failed to fetch saved comps for item ${itemId}:`, err);
-        return { comps: [] };
-      })
-    );
-    
-    const compsResponses = await Promise.all(compsPromises);
-    
-    // Flatten all comps into a single array with item_id
+    // Fetch saved comps for each item in batches to avoid overwhelming the server
+    const BATCH_SIZE = 5; // Process 5 items at a time
     const allComps = [];
-    compsResponses.forEach((response, index) => {
-      if (response.comps) {
-        response.comps.forEach(comp => {
-          allComps.push({
-            item_id: itemIds[index],
-            source: comp.source,
-            source_url: comp.link,
-            sold_price: comp.sale_price,
-            currency: comp.currency,
-            sold_at: comp.date_text,
-            notes: comp.title
+    
+    for (let i = 0; i < itemIds.length; i += BATCH_SIZE) {
+      const batch = itemIds.slice(i, i + BATCH_SIZE);
+      
+      const batchPromises = batch.map(itemId => 
+        getSavedComps(itemId).catch(err => {
+          console.warn(`Failed to fetch saved comps for item ${itemId}:`, err);
+          return { comps: [] };
+        })
+      );
+      
+      const batchResponses = await Promise.all(batchPromises);
+      
+      // Add comps from this batch
+      batchResponses.forEach((response, batchIndex) => {
+        if (response.comps) {
+          response.comps.forEach(comp => {
+            allComps.push({
+              item_id: batch[batchIndex],
+              source: comp.source,
+              source_url: comp.url_comp,
+              sold_price: comp.sold_price,
+              currency: comp.currency,
+              sold_at: comp.sold_at,
+              notes: comp.notes
+            });
           });
-        });
+        }
+      });
+      
+      // Small delay between batches to avoid rate limiting
+      if (i + BATCH_SIZE < itemIds.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
-    });
+    }
     
     return {
       auctions,

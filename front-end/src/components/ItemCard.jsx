@@ -1,16 +1,27 @@
 import { Badge } from './ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Separator } from './ui/separator';
+import { Button } from './ui/button';
+import { Trash2 } from 'lucide-react';
 import { useAuction } from '../context/AuctionContext';
+import { ActionTypes } from '../context/AuctionContext';
+import { deleteItem } from '../services/api';
 
 export function ItemCard({ item }) {
-  const { state } = useAuction();
+  const { state, dispatch } = useAuction();
 
-  console.log('🎴 ItemCard rendering:', {
-    title: item.title,
-    hasAiDescription: !!item.ai_description,
-    ai_description: item.ai_description
-  });
+  const handleDelete = async () => {
+    try {
+      await deleteItem(item.item_id);
+      dispatch({
+        type: ActionTypes.DELETE_ITEM,
+        payload: { item_id: item.item_id }
+      });
+    } catch (error) {
+      console.error('Failed to delete item:', error);
+      alert('Failed to delete item. Please try again.');
+    }
+  };
 
   // Get the first image for this item
   const itemImage = state.itemImages.find(img => img.item_id === item.item_id);
@@ -39,13 +50,19 @@ export function ItemCard({ item }) {
         {/* Content Section */}
         <div className="flex-1">
           <CardHeader className="pb-3 pt-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <CardTitle className="text-xl">{item.title}</CardTitle>
-                <CardDescription className="text-sm mt-1">
-                  {item.brand} {item.year && `• ${item.year}`}
-                </CardDescription>
-              </div>
+            <div className="flex items-start justify-between gap-2">
+              <CardTitle className="text-xl">
+                {item.title}
+              </CardTitle>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleDelete}
+                className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                title="Delete item"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
             </div>
           </CardHeader>
 

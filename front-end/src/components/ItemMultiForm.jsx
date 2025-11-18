@@ -5,9 +5,9 @@ import { Card, CardContent } from './ui/card';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
-import { ImageDropzone } from './ImageDropzone';
+import { ImageUploadZone } from './ImageUploadZone';
 import { ActionTypes, useAuction } from '../context/AuctionContext';
-import { createItem, getItemComps, generateItemDescription, updateItemImage } from '../services/api';
+import { createItem, generateComps, generateItemDescription, updateItemImage, createCompsBatch, getBatchStatus, getBatchResults } from '../services/api';
 import { uploadItemImage } from '../services/storage';
 
 export function ItemMultiForm({ auctionId }) {
@@ -22,7 +22,7 @@ export function ItemMultiForm({ auctionId }) {
       year: '',
       notes: '', // Manual condition notes (scratches, dents, etc.)
       aiDescription: '', // AI-generated 3-sentence description
-      imageFile: null
+      imageFiles: [] // Up to 5 images per item
     }
   ]);
 
@@ -36,7 +36,7 @@ export function ItemMultiForm({ auctionId }) {
         year: '',
         notes: '',
         aiDescription: '',
-        imageFile: null
+        imageFiles: [] // Up to 5 images per item
       }
     ]);
   };
@@ -55,12 +55,17 @@ export function ItemMultiForm({ auctionId }) {
     ));
   };
 
-  const handleImageUpload = (tempId, imageFile) => {
-    handleItemChange(tempId, 'imageFile', imageFile);
-  };
-
-  const handleImageRemove = (tempId) => {
-    handleItemChange(tempId, 'imageFile', null);
+  const handleImagesChange = (tempId, newImages) => {
+    const files = newImages.map(img => img.file);
+    setItems(prevItems => {
+      const updated = prevItems.map(i => {
+        if (i.tempId === tempId) {
+          return { ...i, imageFiles: files };
+        }
+        return i;
+      });
+      return updated;
+    });
   };
 
   const handleSaveItems = async () => {
@@ -88,21 +93,19 @@ export function ItemMultiForm({ auctionId }) {
         }
         const title = titleParts.join(' ');
 
-        // Generate AI description if image is provided
+        // Generate AI description if first image is provided
         let aiDescription = item.aiDescription || '';
         
-        if (item.imageFile && !aiDescription) {
+        if (item.imageFiles.length > 0 && item.imageFiles[0] && !aiDescription) {
           try {
-            console.log(`🤖 Generating AI description for: ${title}`);
             const response = await generateItemDescription(
-              item.imageFile,
+              item.imageFiles[0], // Use first image for description
               title,
               item.model,
               item.year,
               item.notes
             );
             aiDescription = response.description;
-            console.log(`✅ AI Description generated: ${aiDescription}`);
             
             // Update the item state with the generated description so it shows in UI
             handleItemChange(item.tempId, 'aiDescription', aiDescription);
@@ -125,25 +128,35 @@ export function ItemMultiForm({ auctionId }) {
 
         const itemId = createdItem.item.item_id;
         
-        // Now upload the image to Supabase Storage if there's a file
-        let finalImageUrl = 'https://via.placeholder.com/400x300?text=No+Image';
+        // Now upload all images to Supabase Storage
+        const uploadedImages = [];
         
-        if (item.imageFile) {
-          try {
-            console.log(`Uploading image for item ${itemId}...`);
-            const uploadResult = await uploadItemImage(item.imageFile, itemId);
-            finalImageUrl = uploadResult.url;
-            console.log(`✅ Image uploaded: ${finalImageUrl}`);
-            
-            // Update the item's image URL in the backend
-            const imageId = createdItem.images[0].image_id; // Get the first image ID
-            await updateItemImage(itemId, imageId, finalImageUrl);
-            console.log(`✅ Image URL updated in database`);
-            
-          } catch (uploadError) {
-            console.error(`Failed to upload image for item ${itemId}:`, uploadError);
-            // Continue with placeholder if upload fails
+        if (item.imageFiles.length > 0) {
+          for (let i = 0; i < Math.min(item.imageFiles.length, 5); i++) {
+            const imageFile = item.imageFiles[i];
+            if (imageFile) {
+              try {
+                const uploadResult = await uploadItemImage(imageFile, itemId);
+                uploadedImages.push(uploadResult.url);
+              } catch (uploadError) {
+                console.error(`Failed to upload image ${i + 1}:`, uploadError);
+              }
+            }
           }
+        }
+        
+        // Update the item with the first image URL
+        const finalImageUrl = uploadedImages.length > 0 
+          ? uploadedImages[0] 
+          : 'https://via.placeholder.com/400x300?text=No+Image';
+        
+        // Update the item's image URL in the backend
+        try {
+          const imageId = createdItem.images[0].image_id; // Get the first image ID
+          await updateItemImage(itemId, imageId, finalImageUrl);
+        } catch (uploadError) {
+          console.error(`Failed to upload image for item ${itemId}:`, uploadError);
+          // Continue with placeholder if upload fails
         }
 
         createdItems.push({ ...createdItem, finalImageUrl });
@@ -159,7 +172,7 @@ export function ItemMultiForm({ auctionId }) {
             model: createdItem.item.model,
             year: createdItem.item.year,
             status: createdItem.item.status,
-            ai_description: aiDescription, // Include AI description
+            ai_description: createdItem.item.ai_description || aiDescription, // Prefer backend response
             created_at: createdItem.item.created_at
           }
         });
@@ -175,54 +188,221 @@ export function ItemMultiForm({ auctionId }) {
         });
       }
 
-      // Now fetch comps for all created items
-      console.log(`Fetching comps for ${createdItems.length} items...`);
+      // Now fetch comps for all created items using AI agent
+      // Use BATCH API for 2+ items (50% cheaper), single requests for 1 item
       
       let totalCompsAdded = 0;
       
-      for (const createdItem of createdItems) {
+      if (createdItems.length >= 2) {
+        // USE BATCH API FOR MULTIPLE ITEMS (50% cost savings)
+        
         try {
-          console.log(`Fetching comps for item ${createdItem.item.item_id}...`);
-          const compsResponse = await getItemComps(createdItem.item.item_id, 3);
+          // Prepare batch request
+          const batchItems = createdItems.map(ci => ({
+            item_id: ci.item.item_id,
+            brand: ci.item.brand || 'Unknown',
+            model: ci.item.model || 'Unknown',
+            year: ci.item.year ? ci.item.year.toString() : 'Unknown',
+            notes: ''
+          }));
           
-          console.log(`✅ Found ${compsResponse.total_comps_found} comps for item ${createdItem.item.item_id}`);
-          console.log(`   Search query: "${compsResponse.search_query}"`);
-          console.log(`   Comps saved to database: ${compsResponse.comps_saved_to_db}`);
-          console.log(`   Comps in response:`, compsResponse.comps);
+          // Process all items in parallel (returns immediately with all results)
+          const batchResponse = await createCompsBatch(batchItems);
           
-          // Add comps to state
-          if (compsResponse.comps && compsResponse.comps.length > 0) {
-            compsResponse.comps.forEach(comp => {
-              const sold_price = comp.sale_price || comp.best_offer_price || comp.current_price;
-              
-              console.log(`   Adding comp: ${comp.source} - $${sold_price}`);
-              
-              dispatch({
-                type: ActionTypes.ADD_COMP,
-                payload: {
-                  item_id: createdItem.item.item_id,
-                  source: comp.source,
-                  source_url: comp.link,
-                  sold_price: sold_price,
-                  currency: comp.currency,
-                  sold_at: comp.date_text,
-                  notes: comp.title
+          // Process results immediately (no polling needed)
+          if (batchResponse.results && Array.isArray(batchResponse.results)) {
+            batchResponse.results.forEach(result => {
+              if (result.success && result.comps) {
+                const comps = result.comps;
+                
+                // Process comp_1
+                if (comps.comp_1 && comps.comp_1.source !== 'none') {
+                  const price = parseFloat(comps.comp_1.price.replace(/[^0-9.]/g, '')) || 0;
+                  dispatch({
+                    type: ActionTypes.ADD_COMP,
+                    payload: {
+                      item_id: result.item_id,
+                      source: comps.comp_1.source,
+                      source_url: comps.comp_1.url,
+                      sold_price: price,
+                      currency: 'USD',
+                      sold_at: comps.comp_1.sale_date,
+                      notes: comps.comp_1.notes
+                    }
+                  });
+                  totalCompsAdded++;
                 }
-              });
-              
-              totalCompsAdded++;
+                
+                // Process comp_2
+                if (comps.comp_2 && comps.comp_2.source !== 'none') {
+                  const price = parseFloat(comps.comp_2.price.replace(/[^0-9.]/g, '')) || 0;
+                  dispatch({
+                    type: ActionTypes.ADD_COMP,
+                    payload: {
+                      item_id: result.item_id,
+                      source: comps.comp_2.source,
+                      source_url: comps.comp_2.url,
+                      sold_price: price,
+                      currency: 'USD',
+                      sold_at: comps.comp_2.sale_date,
+                      notes: comps.comp_2.notes
+                    }
+                  });
+                  totalCompsAdded++;
+                }
+                
+                // Process comp_3
+                if (comps.comp_3 && comps.comp_3.source !== 'none') {
+                  const price = parseFloat(comps.comp_3.price.replace(/[^0-9.]/g, '')) || 0;
+                  dispatch({
+                    type: ActionTypes.ADD_COMP,
+                    payload: {
+                      item_id: result.item_id,
+                      source: comps.comp_3.source,
+                      source_url: comps.comp_3.url,
+                      sold_price: price,
+                      currency: 'USD',
+                      sold_at: comps.comp_3.sale_date,
+                      notes: comps.comp_3.notes
+                    }
+                  });
+                  totalCompsAdded++;
+                }
+              }
             });
           } else {
-            console.warn(`No comps found in response for item ${createdItem.item.item_id}`);
+            console.error(`❌ Batch ended with status: ${batchStatus}`);
+            alert(`Batch processing ${batchStatus}. Some comps may not have been generated.`);
           }
-        } catch (compError) {
-          console.error(`❌ Failed to fetch comps for item ${createdItem.item.item_id}:`, compError);
+          
+        } catch (batchError) {
+          console.error('❌ Batch processing failed:', batchError);
+          alert('Batch processing failed. Falling back to individual requests...');
+          
+          // Fallback to individual requests
+          for (const createdItem of createdItems) {
+            try {
+              const item = createdItem.item;
+              const compsResponse = await generateComps(
+                item.item_id,
+                item.brand,
+                item.model,
+                item.year ? item.year.toString() : null,
+                null
+              );
+              
+              if (compsResponse.success && compsResponse.comps) {
+                // Process comps (same logic as below)
+                const comps = compsResponse.comps;
+                ['comp_1', 'comp_2', 'comp_3'].forEach(compKey => {
+                  if (comps[compKey] && comps[compKey].source !== 'none') {
+                    const price = parseFloat(comps[compKey].price.replace(/[^0-9.]/g, '')) || 0;
+                    dispatch({
+                      type: ActionTypes.ADD_COMP,
+                      payload: {
+                        item_id: item.item_id,
+                        source: comps[compKey].source,
+                        source_url: comps[compKey].url,
+                        sold_price: price,
+                        currency: 'USD',
+                        sold_at: comps[compKey].sale_date,
+                        notes: comps[compKey].notes
+                      }
+                    });
+                    totalCompsAdded++;
+                  }
+                });
+              }
+            } catch (err) {
+              console.error(`Failed for item ${createdItem.item.item_id}:`, err);
+            }
+          }
+        }
+        
+      } else {
+        // SINGLE ITEM - Use direct API call (immediate response)
+        
+        for (const createdItem of createdItems) {
+          try {
+            const item = createdItem.item;
+            
+            // Call the AI agent to generate comps
+            const compsResponse = await generateComps(
+              item.item_id,
+              item.brand,
+              item.model,
+              item.year ? item.year.toString() : null,
+              null // notes
+            );
+            
+            // Add comps to state from the structured response
+            if (compsResponse.success && compsResponse.comps) {
+              const comps = compsResponse.comps;
+              
+              // Process comp_1
+              if (comps.comp_1 && comps.comp_1.source !== 'none') {
+                const price = parseFloat(comps.comp_1.price.replace(/[^0-9.]/g, '')) || 0;
+                
+                dispatch({
+                  type: ActionTypes.ADD_COMP,
+                  payload: {
+                    item_id: item.item_id,
+                    source: comps.comp_1.source,
+                    source_url: comps.comp_1.url,
+                    sold_price: price,
+                    currency: 'USD',
+                    sold_at: comps.comp_1.sale_date,
+                    notes: comps.comp_1.notes
+                  }
+                });
+                totalCompsAdded++;
+              }
+              
+              // Process comp_2
+              if (comps.comp_2 && comps.comp_2.source !== 'none') {
+                const price = parseFloat(comps.comp_2.price.replace(/[^0-9.]/g, '')) || 0;
+                
+                dispatch({
+                  type: ActionTypes.ADD_COMP,
+                  payload: {
+                    item_id: item.item_id,
+                    source: comps.comp_2.source,
+                    source_url: comps.comp_2.url,
+                    sold_price: price,
+                    currency: 'USD',
+                    sold_at: comps.comp_2.sale_date,
+                    notes: comps.comp_2.notes
+                  }
+                });
+                totalCompsAdded++;
+              }
+              
+              // Process comp_3
+              if (comps.comp_3 && comps.comp_3.source !== 'none') {
+                const price = parseFloat(comps.comp_3.price.replace(/[^0-9.]/g, '')) || 0;
+                
+                dispatch({
+                  type: ActionTypes.ADD_COMP,
+                  payload: {
+                    item_id: item.item_id,
+                    source: comps.comp_3.source,
+                    source_url: comps.comp_3.url,
+                    sold_price: price,
+                    currency: 'USD',
+                    sold_at: comps.comp_3.sale_date,
+                    notes: comps.comp_3.notes
+                  }
+                });
+                totalCompsAdded++;
+              }
+            } else {
+              console.warn(`No comps generated for item ${item.item_id}`);
+            }
+          } catch (compError) {
+            console.error(`❌ Failed to generate comps for item ${createdItem.item.item_id}:`, compError);
+          }
         }
       }
-      
-      console.log(`✅ Total comps added to state: ${totalCompsAdded}`);
-
-      console.log(`✅ Total comps added to state: ${totalCompsAdded}`);
 
       // Reset form to single empty item
       setItems([
@@ -233,12 +413,12 @@ export function ItemMultiForm({ auctionId }) {
           year: '',
           notes: '',
           aiDescription: '',
-          imageFile: null
+          imageFiles: []
         }
       ]);
 
       setLoading(false);
-      alert(`✅ Successfully created ${createdItems.length} item(s) and found ${totalCompsAdded} comps!`);
+      // Success - items created and comps fetched
     } catch (err) {
       console.error('Error creating items:', err);
       setError(err.message || 'Failed to create items');
@@ -255,8 +435,17 @@ export function ItemMultiForm({ auctionId }) {
       )}
       
       <div className="space-y-6">
-        {items.map((item, index) => (
-          <Card key={item.tempId} className="relative">
+        {items.map((item, index) => {
+          const itemTempId = item.tempId;
+          const itemImageFiles = item.imageFiles;
+          const itemBrand = item.brand;
+          const itemModel = item.model;
+          const itemYear = item.year;
+          const itemNotes = item.notes;
+          const itemAiDescription = item.aiDescription;
+          
+          return (
+          <Card key={itemTempId} className="relative">
             <CardContent className="pt-6">
               {/* Item Number and Delete Button */}
               <div className="flex items-center justify-between mb-4">
@@ -266,23 +455,35 @@ export function ItemMultiForm({ auctionId }) {
                     type="button"
                     variant="ghost"
                     size="icon"
-                    onClick={() => handleRemoveItem(item.tempId)}
+                    onClick={() => handleRemoveItem(itemTempId)}
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 )}
               </div>
 
-              <div className="space-y-4">
+      <div className="space-y-4">
                 {/* Image Uploader */}
                 <div>
-                  <Label>Image</Label>
+                  <Label>Images (up to 5)</Label>
                   <div className="mt-2">
-                    <ImageDropzone
-                      existingImage={item.imageFile ? URL.createObjectURL(item.imageFile) : null}
-                      onImageUpload={(file) => handleImageUpload(item.tempId, file)}
-                      onRemove={() => handleImageRemove(item.tempId)}
-                      itemId={item.tempId}
+                    <ImageUploadZone
+                      key={`image-zone-${itemTempId}`}
+                      images={(() => {
+                        return itemImageFiles.map((file, idx) => {
+                          const preview = URL.createObjectURL(file);
+                          return {
+                            id: `${itemTempId}-${idx}`,
+                            file,
+                            preview,
+                            isPrimary: idx === 0
+                          };
+                        });
+                      })()}
+                      onChange={(() => {
+                        const boundHandler = handleImagesChange.bind(null, itemTempId);
+                        return boundHandler;
+                      })()}
                     />
                   </div>
                 </div>
@@ -290,21 +491,21 @@ export function ItemMultiForm({ auctionId }) {
                 {/* Brand and Model Row */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor={`brand-${item.tempId}`}>Brand *</Label>
+                    <Label htmlFor={`brand-${itemTempId}`}>Brand *</Label>
                     <Input
-                      id={`brand-${item.tempId}`}
-                      value={item.brand}
-                      onChange={(e) => handleItemChange(item.tempId, 'brand', e.target.value)}
+                      id={`brand-${itemTempId}`}
+                      value={itemBrand}
+                      onChange={(e) => handleItemChange(itemTempId, 'brand', e.target.value)}
                       placeholder="e.g., Rolex, Omega"
                       required
                     />
                   </div>
                   <div>
-                    <Label htmlFor={`model-${item.tempId}`}>Model *</Label>
+                    <Label htmlFor={`model-${itemTempId}`}>Model *</Label>
                     <Input
-                      id={`model-${item.tempId}`}
-                      value={item.model}
-                      onChange={(e) => handleItemChange(item.tempId, 'model', e.target.value)}
+                      id={`model-${itemTempId}`}
+                      value={itemModel}
+                      onChange={(e) => handleItemChange(itemTempId, 'model', e.target.value)}
                       placeholder="e.g., Submariner, Speedmaster"
                       required
                     />
@@ -313,23 +514,23 @@ export function ItemMultiForm({ auctionId }) {
 
                 {/* Year */}
                 <div>
-                  <Label htmlFor={`year-${item.tempId}`}>Year (optional)</Label>
+                  <Label htmlFor={`year-${itemTempId}`}>Year (optional)</Label>
                   <Input
-                    id={`year-${item.tempId}`}
+                    id={`year-${itemTempId}`}
                     type="number"
-                    value={item.year}
-                    onChange={(e) => handleItemChange(item.tempId, 'year', e.target.value)}
+                    value={itemYear}
+                    onChange={(e) => handleItemChange(itemTempId, 'year', e.target.value)}
                     placeholder="e.g., 2020"
                   />
                 </div>
 
                 {/* Condition Notes - User enters specific condition details */}
                 <div>
-                  <Label htmlFor={`notes-${item.tempId}`}>Condition Notes</Label>
+                  <Label htmlFor={`notes-${itemTempId}`}>Condition Notes</Label>
                   <Textarea
-                    id={`notes-${item.tempId}`}
-                    value={item.notes}
-                    onChange={(e) => handleItemChange(item.tempId, 'notes', e.target.value)}
+                    id={`notes-${itemTempId}`}
+                    value={itemNotes}
+                    onChange={(e) => handleItemChange(itemTempId, 'notes', e.target.value)}
                     placeholder="Describe specific condition details: scratches, dents, wear, etc."
                     rows={3}
                   />
@@ -339,11 +540,11 @@ export function ItemMultiForm({ auctionId }) {
                 </div>
 
                 {/* AI-Generated Description Preview */}
-                {item.aiDescription && (
+                {itemAiDescription && (
                   <div>
                     <Label>AI Description Preview</Label>
                     <div className="mt-2 p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
-                      <p className="text-sm text-gray-800 leading-relaxed">{item.aiDescription}</p>
+                      <p className="text-sm text-gray-800 leading-relaxed">{itemAiDescription}</p>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
                       This will be generated automatically when you save.
@@ -353,7 +554,8 @@ export function ItemMultiForm({ auctionId }) {
               </div>
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
       </div>
 
       {/* Action Buttons */}
@@ -375,7 +577,7 @@ export function ItemMultiForm({ auctionId }) {
           size="lg"
           disabled={loading}
         >
-          {loading ? 'Saving & Fetching Comps...' : 'Save Items & Find Comps'}
+          {loading ? 'Saving & Generating Comps with AI...' : 'Save Items & Generate Comps (AI)'}
         </Button>
       </div>
     </div>
