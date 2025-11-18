@@ -47,6 +47,7 @@ function App() {
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/help" element={<HelpPage />} />
             </Route>
+
           </Routes>
         </AuctionProvider>
       </AuthProvider>

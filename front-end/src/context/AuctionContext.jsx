@@ -75,7 +75,6 @@ function auctionReducer(state, action) {
         brand: action.payload.brand,
         model: action.payload.model,
         year: action.payload.year,
-        status: action.payload.status,
         description: action.payload.description || '',
         ai_description: action.payload.ai_description || '',
         created_at: action.payload.created_at || new Date().toISOString()

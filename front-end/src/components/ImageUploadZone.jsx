@@ -220,10 +220,9 @@ export function ImageUploadZone({ images = [], onChange, disabled = false }) {
                   />
                 </div>
                 
-                {/* Primary badge */}
-                <div className="absolute top-2 left-2 flex items-center gap-1 bg-sky-400 text-white text-xs font-medium px-2 py-1 rounded-md shadow-sm">
-                  <Star className="h-3 w-3 fill-white" />
-                  Primary
+                {/* Primary badge - star only */}
+                <div className="absolute top-2 left-2 flex items-center bg-sky-400 text-white rounded-full p-1.5 shadow-sm">
+                  <Star className="h-3.5 w-3.5 fill-white" />
                 </div>
 
                 {/* Remove button */}
@@ -246,11 +245,6 @@ export function ImageUploadZone({ images = [], onChange, disabled = false }) {
                     alt="Auxiliary"
                     className="w-full h-full object-cover"
                   />
-                </div>
-
-                {/* Aux badge */}
-                <div className="absolute top-2 left-2 bg-gray-600 dark:bg-gray-700 text-white text-xs font-medium px-2 py-1 rounded-md shadow-sm">
-                  Aux
                 </div>
 
                 {/* Action buttons */}

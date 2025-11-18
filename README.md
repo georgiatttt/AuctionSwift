@@ -21,7 +21,7 @@ A full-stack auction management application for cataloging, pricing, and managin
 - **PostgreSQL** via Supabase
 - Row Level Security (RLS) enabled
 - Multi-tenant architecture with organizations
-
+![alt text](<Screenshot 2025-11-17 at 11.43.11 PM.png>)
 ---
 
 ## Features
@@ -41,24 +41,34 @@ A full-stack auction management application for cataloging, pricing, and managin
 ```
 AuctionSwift/
 ├── .env                     # Environment variables (root level)
+├── .env.example             # Template for environment variables
 ├── requirements.txt         # Python dependencies (root level)
+├── venv/                    # Python virtual environment (git-ignored)
 ├── backend/
 │   └── main.py              # FastAPI server with all endpoints
-├── front-end/
-│   ├── src/
-│   │   ├── components/      # React components
-│   │   ├── context/         # Global state management
-│   │   ├── pages/           # Route pages
-│   │   ├── lib/             # API client & utilities
-│   │   └── App.jsx          # Main app component
-│   └── package.json         # Frontend dependencies
-├── sql/
-│   ├── schema.sql           # Database schema
-│   ├── rls_policies.sql     # Row Level Security policies
-│   ├── seed.sql             # Sample data
-│   └── views.sql            # Database views
-└── docs/
-    └── er-diagram.png       # Entity relationship diagram
+└── front-end/
+    ├── src/
+    │   ├── components/      # React components
+    │   │   ├── ui/          # shadcn/ui components
+    │   │   ├── Layout.jsx   # Main layout with sidebar
+    │   │   ├── Sidebar.jsx  # Navigation sidebar
+    │   │   ├── ItemCard.jsx # Item display card
+    │   │   ├── ItemMultiForm.jsx  # Multi-item creation form
+    │   │   └── ImageUploadZone.jsx # Image upload handler
+    │   ├── context/         # Global state management
+    │   │   ├── AuctionContext.jsx  # Auction state
+    │   │   └── AuthContext.jsx     # Auth state
+    │   ├── pages/           # Route pages
+    │   │   ├── HomePage.jsx         # Landing page
+    │   │   ├── LoginPage.jsx        # Login
+    │   │   ├── SignUpPage.jsx       # Sign up
+    │   │   ├── DashboardPage.jsx    # User dashboard
+    │   │   ├── NewAuctionPage.jsx   # Create auction
+    │   │   └── AuctionDetailPage.jsx # Auction details
+    │   ├── lib/             # API client & utilities
+    │   │   └── supabaseClient.js # Supabase config
+    │   └── App.jsx          # Main app component with routing
+    └── package.json         # Frontend dependencies
 ```
 
 ---
@@ -80,12 +90,9 @@ cd AuctionSwift
 ### 2. Database Setup
 
 1. Create a Supabase project at [supabase.com](https://supabase.com)
-2. Go to **SQL Editor** in Supabase Dashboard
-3. Run the following SQL files in order:
-   - `sql/schema.sql` - Creates tables
-   - `sql/rls_policies.sql` - Sets up security policies
-   - `sql/views.sql` - Creates helper views
-   - `sql/seed.sql` - (Optional) Adds sample data
+2. Set up your database schema through the Supabase Dashboard
+3. Configure Row Level Security (RLS) policies for multi-tenant access
+4. Create the required tables: `profiles`, `organizations`, `auctions`, `items`, `item_images`, `comps`
 
 ### 3. Backend Setup
 
@@ -97,14 +104,15 @@ source venv/bin/activate  # On Windows: .\venv\Scripts\Activate.ps1
 
 # Install dependencies
 pip install -r requirements.txt
+pip install openai-agents
 ```
 
 **Environment Variables (.env in root)**:
 ```env
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your_anon_key
-SUPABASE_SERVICE_KEY=your_service_role_key
-OPENAI_API_KEY=your_openai_api_key
+SUPABASE_KEY=your_service_role_key
+OPENAI_DESCRIPTION_KEY=your_openai_api_key_for_descriptions
+OPENAI_COMPS_KEY=your_openai_api_key_for_comps
 ```
 
 ### 4. Frontend Setup

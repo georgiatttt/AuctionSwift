@@ -171,7 +171,6 @@ export function ItemMultiForm({ auctionId }) {
             brand: createdItem.item.brand,
             model: createdItem.item.model,
             year: createdItem.item.year,
-            status: createdItem.item.status,
             ai_description: createdItem.item.ai_description || aiDescription, // Prefer backend response
             created_at: createdItem.item.created_at
           }

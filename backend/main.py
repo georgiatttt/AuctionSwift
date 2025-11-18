@@ -272,14 +272,13 @@ def create_item(
     model_val = model.strip() if model.strip() else "Unknown"
     year_val = year if year is not None else None
 
-    # insert item (status is draft)
+    # insert item
     item_res = supabase.table("items").insert({
         "auction_id": auction_id,
         "title": title.strip(),
         "brand": brand_val,
         "model": model_val,
         "year": year_val,
-        "status": "draft",
         "ai_description": ai_description.strip() if ai_description else None
     }).execute()
     if not item_res.data:
@@ -404,8 +403,7 @@ def update_item(
     title: str = None,
     brand: str = None,
     model: str = None,
-    year: int = None,
-    status: str = None
+    year: int = None
 ):
     # check item exists
     item = supabase.table("items").select("item_id").eq("item_id", item_id).execute()
@@ -422,10 +420,6 @@ def update_item(
         updates["model"] = model.strip()
     if year is not None:
         updates["year"] = year
-    if status is not None:
-        if status not in ["draft", "published", "sold"]:
-            raise HTTPException(400, "Invalid status")
-        updates["status"] = status
 
     if not updates:
         raise HTTPException(400, "No fields to update")
