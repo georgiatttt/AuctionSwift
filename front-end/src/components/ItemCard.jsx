@@ -2,6 +2,7 @@ import { Badge } from './ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Separator } from './ui/separator';
 import { Button } from './ui/button';
+import * as XLSX from 'xlsx';
 import { Trash2 } from 'lucide-react';
 import { useAuction } from '../context/AuctionContext';
 import { ActionTypes } from '../context/AuctionContext';
@@ -29,6 +30,59 @@ export function ItemCard({ item }) {
   // Get comps for this item
   const itemComps = state.comps.filter(comp => comp.item_id === item.item_id);
 
+  const handleExport = () => {
+    try {
+      // Build rows for the Excel sheet
+      const rows = [];
+
+      // Basic item info
+      rows.push(
+        { Section: 'Item', Field: 'Title', Value: item.title },
+        { Section: 'Item', Field: 'AI Description', Value: item.ai_description || 'N/A' },
+        { Section: 'Item', Field: 'Item ID', Value: item.item_id },
+        { Section: 'Item', Field: 'Auction ID', Value: item.auction_id || '' }
+      );
+
+      // Add comps (if any)
+      if (itemComps.length > 0) {
+        itemComps.forEach((comp, index) => {
+          rows.push({
+            Section: 'Comp',
+            Field: `Comp #${index + 1}`,
+            Value: `${comp.source} — ${comp.currency} ${comp.sold_price.toFixed(2)} on ${comp.sold_at}`
+          });
+        });
+      } else {
+        rows.push({
+          Section: 'Comp',
+          Field: 'Comps',
+          Value: 'No comparable sales found'
+        });
+      }
+
+      // Create worksheet + workbook
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Item');
+
+      // Safe filename from title
+      const safeTitle = (item.title || 'item')
+        .replace(/[\\/:*?"<>|]/g, '_')   // remove illegal filename chars
+        .slice(0, 50);                   // keep it a reasonable length
+
+      const filename = `${safeTitle || 'item'}-details.xlsx`;
+
+      // Trigger download in the browser
+      XLSX.writeFile(workbook, filename);
+    } catch (error) {
+      console.error('Failed to export item to Excel:', error);
+      alert('Failed to export item to Excel. Please try again.');
+    }
+  };
+
+
+
+
   return (
     <Card className="overflow-hidden">
       <div className="flex flex-col md:flex-row h-full">
@@ -54,15 +108,26 @@ export function ItemCard({ item }) {
               <CardTitle className="text-xl">
                 {item.title}
               </CardTitle>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleDelete}
-                className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                title="Delete item"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
+
+              {/* Button Row */}
+              <div className="flex gap-2">
+
+                {/* Delete Button */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleDelete}
+                  className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                  title="Delete item"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+
+                {/* Export Button */}
+                <Button onClick={handleExport}>
+                  Export to Excel
+                </Button>
+              </div>
             </div>
           </CardHeader>
 
