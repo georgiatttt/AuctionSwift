@@ -1,9 +1,7 @@
 // import react hooks
 import { createContext, useContext, useReducer, useEffect } from 'react';
 import { fetchAllUserData } from '../services/api';
-
-// demo profile id (replace with auth later)
-const DEMO_PROFILE_ID = '50b07313-7b97-42c4-b020-5f8085483ea9';
+import { useAuth } from './AuthContext';
 
 // initial state
 const initialState = {
@@ -18,12 +16,14 @@ const initialState = {
 // action types
 export const ActionTypes = {
   CREATE_AUCTION: 'CREATE_AUCTION',
+  UPDATE_AUCTION: 'UPDATE_AUCTION',
   DELETE_AUCTION: 'DELETE_AUCTION',
   ADD_ITEM: 'ADD_ITEM',
   UPDATE_ITEM: 'UPDATE_ITEM',
   DELETE_ITEM: 'DELETE_ITEM',
   ADD_ITEM_IMAGE: 'ADD_ITEM_IMAGE',
   DELETE_ITEM_IMAGE: 'DELETE_ITEM_IMAGE',
+  SET_ITEM_IMAGES: 'SET_ITEM_IMAGES',         // Replace all images for an item
   ADD_COMP: 'ADD_COMP',                       // Add a comparable sale
   LOAD_ALL_DATA: 'LOAD_ALL_DATA',             // Load all data from API
   SET_LOADING: 'SET_LOADING',                 // Set loading state
@@ -41,12 +41,24 @@ function auctionReducer(state, action) {
         auctions: [
           ...state.auctions,
           {
-            auction_id: action.payload.auction_id || uuidv4(),
+            auction_id: action.payload.auction_id,
             auction_name: action.payload.auction_name,
-            profile_id: action.payload.profile_id || 'user-123',
-            created_at: new Date().toISOString()
+            profile_id: action.payload.profile_id,
+            status: action.payload.status || 'draft',
+            created_at: action.payload.created_at || new Date().toISOString()
           }
         ]
+      };
+
+    // UPDATE EXISTING AUCTION (e.g., status change)
+    case ActionTypes.UPDATE_AUCTION:
+      return {
+        ...state,
+        auctions: state.auctions.map(auction =>
+          auction.auction_id === action.payload.auction_id
+            ? { ...auction, ...action.payload.updates }
+            : auction
+        )
       };
 
     // DELETE AUCTION (and cascade delete all related data)
@@ -126,6 +138,16 @@ function auctionReducer(state, action) {
         itemImages: state.itemImages.filter(img => img.image_id !== action.payload.image_id)
       };
 
+    // SET ALL IMAGES FOR AN ITEM (used for reordering/primary)
+    case ActionTypes.SET_ITEM_IMAGES:
+      return {
+        ...state,
+        itemImages: [
+          ...state.itemImages.filter(img => img.item_id !== action.payload.item_id),
+          ...action.payload.images
+        ]
+      };
+
     // ADD COMPARABLE SALE
     case ActionTypes.ADD_COMP:
       return {
@@ -185,14 +207,31 @@ const AuctionContext = createContext(null);
 // Provider component that wraps our app and provides auction data
 export function AuctionProvider({ children }) {
   const [state, dispatch] = useReducer(auctionReducer, initialState);
+  const { user } = useAuth();
 
-  // Load all user data on mount
+  // Load all user data when user changes (login/logout)
   useEffect(() => {
     const loadData = async () => {
+      // If no user is logged in, reset to empty state
+      if (!user) {
+        dispatch({
+          type: ActionTypes.LOAD_ALL_DATA,
+          payload: {
+            auctions: [],
+            items: [],
+            itemImages: [],
+            comps: []
+          }
+        });
+        return;
+      }
+
       try {
         dispatch({ type: ActionTypes.SET_LOADING, payload: true });
         
-        const data = await fetchAllUserData(DEMO_PROFILE_ID);
+        // Use the authenticated user's ID
+        const profileId = user.id;
+        const data = await fetchAllUserData(profileId);
         
         // extract item images from items
         const itemImages = [];
@@ -229,7 +268,7 @@ export function AuctionProvider({ children }) {
     };
 
     loadData();
-  }, []);
+  }, [user]);
 
   // ---- HELPER FUNCTIONS ---- //
   // Get all items that belong to a specific auction

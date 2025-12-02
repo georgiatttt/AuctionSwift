@@ -8,7 +8,7 @@ export function HomePage() {
   // ------------------------------
   // ONE-TIME TYPEWRITER ANIMATION
   // ------------------------------
-  const fullText = "AuctionSwift";
+  const fullText = "EstateBid";
   const [displayText, setDisplayText] = useState("");
   const [showCursor, setShowCursor] = useState(true);
 

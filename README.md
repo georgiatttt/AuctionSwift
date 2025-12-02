@@ -1,4 +1,4 @@
-# AuctionSwift
+# EstateBid
 
 A full-stack auction management application for cataloging, pricing, and managing auction items using AI-powered descriptions and comparable sales analysis.
 
@@ -39,7 +39,7 @@ A full-stack auction management application for cataloging, pricing, and managin
 ## Project Structure
 
 ```
-AuctionSwift/
+EstateBid/
 ├── .env                     # Environment variables (root level)
 ├── .env.example             # Template for environment variables
 ├── requirements.txt         # Python dependencies (root level)
@@ -83,8 +83,8 @@ AuctionSwift/
 
 ### 1. Clone Repository
 ```bash
-git clone https://github.com/georgiatttt/AuctionSwift.git
-cd AuctionSwift
+git clone https://github.com/georgiatttt/EstateBid.git
+cd EstateBid
 ```
 
 ### 2. Database Setup

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Plus, Search, Gavel, ChevronLeft, ChevronRight, CreditCard, Settings, HelpCircle, LogOut, ChartBar } from 'lucide-react';
+import { Plus, Search, Gavel, ChevronLeft, ChevronRight, CreditCard, Settings, HelpCircle, LogOut } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ScrollArea } from './ui/scroll-area';
@@ -46,7 +46,7 @@ export function Sidebar({ onSearchClick, onPlanClick, onSettingsClick, onHelpCli
           <>
             <Link to="/" className="flex items-center gap-2 text-xl font-bold">
               <Gavel className="h-6 w-6" />
-              <span>AuctionSwift</span>
+              <span>EstateBid</span>
             </Link>
             <Button
               variant="ghost"
@@ -135,23 +135,34 @@ export function Sidebar({ onSearchClick, onPlanClick, onSettingsClick, onHelpCli
                 [...state.auctions]
                   .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
                   .map(auction => (
-                  <Link
-                    key={auction.auction_id}
-                    to={`/auction/${auction.auction_id}`}
-                  >
-                    <div
-                      className={cn(
-                        "px-3 py-2 rounded-md text-sm hover:bg-accent transition-colors cursor-pointer",
-                        location.pathname === `/auction/${auction.auction_id}` && "bg-accent"
-                      )}
+                    <Link
+                      key={auction.auction_id}
+                      to={`/auction/${auction.auction_id}`}
                     >
-                      <div className="font-medium truncate">{auction.auction_name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {new Date(auction.created_at).toLocaleDateString()}
+                      <div
+                        className={cn(
+                          "px-3 py-2 rounded-md text-sm hover:bg-accent transition-colors cursor-pointer",
+                          location.pathname.startsWith(`/auction/${auction.auction_id}`) && "bg-accent"
+                        )}
+                      >
+                        <div className="font-medium truncate flex items-center gap-2">
+                          {auction.auction_name}
+                          {(!auction.status || auction.status === 'draft') && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-yellow-100 text-yellow-700 rounded">DRAFT</span>
+                          )}
+                          {auction.status === 'published' && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-green-100 text-green-700 rounded">LIVE</span>
+                          )}
+                          {auction.status === 'closed' && (
+                            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-red-100 text-red-700 rounded">CLOSED</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {new Date(auction.created_at).toLocaleDateString()}
+                        </div>
                       </div>
-                    </div>
-                  </Link>
-                ))
+                    </Link>
+                  ))
               )}
             </div>
           </ScrollArea>
@@ -194,16 +205,6 @@ export function Sidebar({ onSearchClick, onPlanClick, onSettingsClick, onHelpCli
             {/* Profile Dropdown Menu */}
             {showProfileMenu && (
               <div className="absolute bottom-full left-0 right-0 mb-1 bg-card border rounded-lg shadow-lg overflow-hidden">
-                <button
-                  className="w-full px-3 py-2.5 flex items-center gap-3 hover:bg-accent transition-colors text-sm"
-                  onClick={() => {
-                    setShowProfileMenu(false);
-                    navigate('/dashboard');
-                  }}
-                >
-                  <ChartBar className="h-4 w-4" />
-                  <span>Dashboard</span>
-                </button>
                 <button
                   className="w-full px-3 py-2.5 flex items-center gap-3 hover:bg-accent transition-colors text-sm"
                   onClick={() => {

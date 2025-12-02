@@ -1,18 +1,24 @@
 from fastapi import FastAPI, HTTPException, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+
+# Monkey-patch httpx to disable HTTP/2 before any other imports
+# This fixes WinError 10035 on Windows with HTTP/2 connections
+import httpx
+_original_client_init = httpx.Client.__init__
+def _patched_client_init(self, *args, **kwargs):
+    kwargs['http2'] = False  # Force HTTP/1.1
+    return _original_client_init(self, *args, **kwargs)
+httpx.Client.__init__ = _patched_client_init
+
 from supabase import create_client, Client
 from openai import OpenAI
 from pydantic import BaseModel
 import os
-import sys
 import base64
 from typing import Optional, List
 from agents import Agent, Runner, WebSearchTool
 import asyncio
-import httpx
-import json
-import tempfile
 import time
 
 # load env from root dir
@@ -32,15 +38,24 @@ openai_description_client = OpenAI(api_key=OPENAI_DESCRIPTION_KEY) if OPENAI_DES
 
 app = FastAPI()
 
-# enable cors for frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+# Get allowed origins from environment or use defaults
+# In production, set ALLOWED_ORIGINS env variable to your frontend domain
+allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "")
+if allowed_origins_str:
+    allowed_origins = [origin.strip() for origin in allowed_origins_str.split(",")]
+else:
+    # Default development origins
+    allowed_origins = [
         "http://localhost:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
-    ],
+    ]
+
+# enable cors for frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -130,11 +145,18 @@ def create_auction(profile_id: str, auction_name: str):
     if not auction_name.strip():
         raise HTTPException(400, "Auction name cannot be empty")
 
-    # check profile exists and is active
+    # Check if profile exists - if not, auto-create it for new Supabase Auth users
     prof = supabase.table("profiles").select("profile_id, is_active").eq("profile_id", profile_id).execute()
     if not prof.data:
-        raise HTTPException(404, "User/profile not found")
-    if not prof.data[0]["is_active"]:
+        # Auto-create profile for new users (from Supabase Auth)
+        new_profile = supabase.table("profiles").insert({
+            "profile_id": profile_id,
+            "email": "",  # Will be updated later if needed
+            "is_active": True
+        }).execute()
+        if not new_profile.data:
+            raise HTTPException(500, "Failed to create user profile")
+    elif not prof.data[0]["is_active"]:
         raise HTTPException(403, "User is not active")
 
     # create auction
@@ -159,12 +181,8 @@ def get_auction(auction_id: str):
 # GET all auctions for a user
 @app.get("/auctions")
 def list_auctions_by_user(profile_id: str):
-    # find user
-    user = supabase.table("profiles").select("profile_id").eq("profile_id", profile_id).execute()
-    if not user.data:
-        raise HTTPException(404, "User not found")
-
-    # get all auctions for this user
+    # Get all auctions for this user (don't require profile to exist in profiles table)
+    # New users from Supabase Auth may not have a profiles entry yet
     auctions = supabase.table("auctions").select("*").eq("profile_id", profile_id).order("created_at", desc=True).execute()
     if not auctions.data:
         return {"message": "No auctions found for this user", "auctions": []}
@@ -272,14 +290,15 @@ def create_item(
     model_val = model.strip() if model.strip() else "Unknown"
     year_val = year if year is not None else None
 
-    # insert item
+    # insert item (is_listed defaults to false - must be approved in settings)
     item_res = supabase.table("items").insert({
         "auction_id": auction_id,
         "title": title.strip(),
         "brand": brand_val,
         "model": model_val,
         "year": year_val,
-        "ai_description": ai_description.strip() if ai_description else None
+        "ai_description": ai_description.strip() if ai_description else None,
+        "is_listed": False
     }).execute()
     if not item_res.data:
         raise HTTPException(500, "Failed to create item")
@@ -319,28 +338,47 @@ def list_items(auction_id: str = None, profile_id: str = None):
         imgs = supabase.table("item_images").select("*").in_("item_id", item_ids).execute()
         images = imgs.data if imgs.data else []
 
-        # group images
-        grouped = {}
+        # get comps for all items
+        comps = supabase.table("comps").select("*").in_("item_id", item_ids).execute()
+        comps_data = comps.data if comps.data else []
+
+        # group images by item_id
+        grouped_images = {}
         for img in images:
             iid = img["item_id"]
-            if iid not in grouped:
-                grouped[iid] = []
-            grouped[iid].append(img)
+            if iid not in grouped_images:
+                grouped_images[iid] = []
+            grouped_images[iid].append(img)
 
-        # attach images to items
+        # group comps by item_id and calculate suggested starting price
+        grouped_comps = {}
+        for comp in comps_data:
+            iid = comp["item_id"]
+            if iid not in grouped_comps:
+                grouped_comps[iid] = []
+            grouped_comps[iid].append(comp)
+
+        # attach images, comps, and suggested_starting_price to items
         for it in items.data:
-            it["images"] = grouped.get(it["item_id"], [])
+            it["images"] = grouped_images.get(it["item_id"], [])
+            item_comps = grouped_comps.get(it["item_id"], [])
+            it["comps"] = item_comps
+            
+            # Calculate suggested starting price: average of comps * 0.8, rounded down to nearest 5
+            if item_comps:
+                avg_price = sum(c.get("sold_price", 0) for c in item_comps) / len(item_comps)
+                raw_suggested = avg_price * 0.8
+                it["suggested_starting_price"] = int(raw_suggested // 5) * 5  # Round down to nearest 5
+            else:
+                it["suggested_starting_price"] = None
 
         return {"auction_id": auction_id, "items": items.data}
 
     elif profile_id:
         # get all items across all auctions for this profile
         try:
-            user = supabase.table("profiles").select("profile_id").eq("profile_id", profile_id).execute()
-            if not user.data:
-                raise HTTPException(404, "User not found")
-
-            # get all auctions for this user
+            # Don't require profile to exist in profiles table - just check auctions directly
+            # New users from Supabase Auth may not have a profiles entry yet
             auctions = supabase.table("auctions").select("auction_id").eq("profile_id", profile_id).execute()
             if not auctions.data:
                 return {"message": "No auctions found for this user", "items": []}
@@ -357,17 +395,40 @@ def list_items(auction_id: str = None, profile_id: str = None):
             imgs = supabase.table("item_images").select("*").in_("item_id", item_ids).execute()
             images = imgs.data if imgs.data else []
 
-            # group images
-            grouped = {}
+            # get comps for all items
+            comps = supabase.table("comps").select("*").in_("item_id", item_ids).execute()
+            comps_data = comps.data if comps.data else []
+
+            # group images by item_id
+            grouped_images = {}
             for img in images:
                 iid = img["item_id"]
-                if iid not in grouped:
-                    grouped[iid] = []
-                grouped[iid].append(img)
+                if iid not in grouped_images:
+                    grouped_images[iid] = []
+                grouped_images[iid].append(img)
 
-            # attach images to items
+            # group comps by item_id
+            grouped_comps = {}
+            for comp in comps_data:
+                iid = comp["item_id"]
+                if iid not in grouped_comps:
+                    grouped_comps[iid] = []
+                grouped_comps[iid].append(comp)
+
+            # attach images, comps, and suggested_starting_price to items
             for it in items.data:
-                it["images"] = grouped.get(it["item_id"], [])
+                it["images"] = grouped_images.get(it["item_id"], [])
+                item_comps = grouped_comps.get(it["item_id"], [])
+                it["comps"] = item_comps
+                
+                # Calculate suggested starting price: average of comps * 0.8
+                if item_comps:
+                    # Calculate suggested starting price: average of comps * 0.8, rounded down to nearest 5
+                    avg_price = sum(c.get("sold_price", 0) for c in item_comps) / len(item_comps)
+                    raw_suggested = avg_price * 0.8
+                    it["suggested_starting_price"] = int(raw_suggested // 5) * 5  # Round down to nearest 5
+                else:
+                    it["suggested_starting_price"] = None
 
             return {"profile_id": profile_id, "items": items.data}
         
@@ -476,6 +537,90 @@ def update_item_image(item_id: str, image_id: int, url: str):
         raise HTTPException(500, "Failed to update image URL")
     
     return {"message": "Image URL updated successfully", "image": res.data[0]}
+
+
+# ADD additional images to an item
+class AddItemImagesRequest(BaseModel):
+    urls: List[str]
+
+@app.post("/items/{item_id}/images")
+def add_item_images(item_id: str, request: AddItemImagesRequest):
+    """
+    Add additional images to an existing item.
+    Used after uploading images to Supabase Storage.
+    """
+    # Verify item exists
+    item = supabase.table("items").select("item_id").eq("item_id", item_id).execute()
+    if not item.data:
+        raise HTTPException(404, "Item not found")
+    
+    # Get current highest position for this item
+    existing = supabase.table("item_images").select("position").eq("item_id", item_id).order("position", desc=True).limit(1).execute()
+    next_position = (existing.data[0]["position"] + 1) if existing.data else 1
+    
+    # Insert new images with sequential positions
+    rows = []
+    for i, url in enumerate(request.urls):
+        rows.append({
+            "item_id": item_id,
+            "url": url,
+            "position": next_position + i
+        })
+    
+    if rows:
+        res = supabase.table("item_images").insert(rows).execute()
+        if not res.data:
+            raise HTTPException(500, "Failed to add images")
+        return {"message": f"Added {len(rows)} images", "images": res.data}
+    
+    return {"message": "No images to add", "images": []}
+
+
+# SET an image as primary (position 1)
+@app.put("/items/{item_id}/images/{image_id}/primary")
+def set_image_primary(item_id: str, image_id: int):
+    """
+    Set an image as the primary image for an item.
+    Moves the selected image to position 1 and shifts others accordingly.
+    """
+    # Verify item exists
+    item = supabase.table("items").select("item_id").eq("item_id", item_id).execute()
+    if not item.data:
+        raise HTTPException(404, "Item not found")
+    
+    # Get all images for this item
+    images = supabase.table("item_images").select("*").eq("item_id", item_id).order("position").execute()
+    if not images.data:
+        raise HTTPException(404, "No images found for this item")
+    
+    # Find the target image
+    target_image = None
+    for img in images.data:
+        if img["image_id"] == image_id:
+            target_image = img
+            break
+    
+    if not target_image:
+        raise HTTPException(404, "Image not found")
+    
+    # If already primary, nothing to do
+    if target_image["position"] == 1:
+        return {"message": "Image is already primary", "image": target_image}
+    
+    # Reorder: set target to position 1, shift others down
+    # First, set target to position 0 (temporary)
+    supabase.table("item_images").update({"position": 0}).eq("image_id", image_id).execute()
+    
+    # Increment positions of all images that were before the target
+    for img in images.data:
+        if img["image_id"] != image_id and img["position"] < target_image["position"]:
+            supabase.table("item_images").update({"position": img["position"] + 1}).eq("image_id", img["image_id"]).execute()
+    
+    # Set target to position 1
+    res = supabase.table("item_images").update({"position": 1}).eq("image_id", image_id).execute()
+    
+    return {"message": "Image set as primary", "image": res.data[0] if res.data else target_image}
+
 
 # comps endpoints
 
@@ -725,7 +870,7 @@ Here are the inputs:
 - Year: {year}
 - Notes: {notes}
 
-**CURRENT DATE: November 16, 2025**
+**CURRENT DATE: December 1, 2025**
 
 Use the web search tool to find REAL, RECENT sold listings with VALID, WORKING URLs from 2025 ONLY.
 
@@ -752,7 +897,7 @@ You must output exactly THREE comps from 2025, filling every field:
 - `notes_X`: Include item condition, differences from target item, and any relevant details
 
 ### VALIDATION RULES
-1. All three comps must be from **three different websites**
+1. All three comps must be from three different websites, the comps should not be from the same source
 2. All three comps must have sale dates in **2025 ONLY** (January 1 - November 16, 2025)
 3. URLs must be **complete and valid** (start with https://)
 4. If the first search doesn't return 2025 results, try different search terms and keep searching
@@ -936,6 +1081,45 @@ class BatchCompsResponse(BaseModel):
     total_items: int
     message: str
 
+# ============================================
+# BIDDING SYSTEM MODELS
+# ============================================
+
+class AuctionSettingsUpdate(BaseModel):
+    """Request model for updating auction settings"""
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    status: Optional[str] = None  # 'draft', 'published', 'closed'
+    pickup_location: Optional[str] = None
+    shipping_allowed: Optional[bool] = None
+
+class ItemAuctionSettings(BaseModel):
+    """Request model for item auction settings"""
+    starting_bid: Optional[float] = None
+    min_increment: Optional[float] = None
+    buy_now_price: Optional[float] = None
+    lot: Optional[int] = None
+    is_listed: Optional[bool] = None
+
+class BatchItemAuctionSettings(BaseModel):
+    """Request model for batch updating item auction settings"""
+    item_ids: List[str]
+    starting_bid: Optional[float] = None
+    min_increment: Optional[float] = None
+    buy_now_price: Optional[float] = None
+    is_listed: Optional[bool] = None
+
+class BidRequest(BaseModel):
+    """Request model for placing a bid"""
+    bidder_email: str
+    bidder_name: str
+    bid_amount: float
+
+class BuyNowRequest(BaseModel):
+    """Request model for buy now purchase"""
+    buyer_email: str
+    buyer_name: str
+
 @app.post("/comps/batch")
 async def create_comps_batch(request: BatchCompsRequest):
     """
@@ -1022,6 +1206,420 @@ async def create_comps_batch(request: BatchCompsRequest):
         import traceback
         error_detail = traceback.format_exc()
         raise HTTPException(500, f"Failed to process batch: {str(e)}")
+
+
+# ============================================
+# BIDDING SYSTEM ENDPOINTS
+# ============================================
+
+# UPDATE auction settings (start/end time, location, shipping)
+@app.put("/auctions/{auction_id}/settings")
+def update_auction_settings(auction_id: str, settings: AuctionSettingsUpdate):
+    """Update auction settings including start/end time and pickup/shipping options"""
+    # Check auction exists
+    auction = supabase.table("auctions").select("*").eq("auction_id", auction_id).execute()
+    if not auction.data:
+        raise HTTPException(404, "Auction not found")
+    
+    # Build update dict
+    updates = {}
+    if settings.start_time is not None:
+        updates["start_time"] = settings.start_time
+    if settings.end_time is not None:
+        updates["end_time"] = settings.end_time
+    if settings.status is not None:
+        if settings.status not in ["draft", "published", "closed"]:
+            raise HTTPException(400, "Status must be 'draft', 'published', or 'closed'")
+        updates["status"] = settings.status
+    if settings.pickup_location is not None:
+        updates["pickup_location"] = settings.pickup_location
+    if settings.shipping_allowed is not None:
+        updates["shipping_allowed"] = settings.shipping_allowed
+    
+    if not updates:
+        raise HTTPException(400, "No settings to update")
+    
+    res = supabase.table("auctions").update(updates).eq("auction_id", auction_id).execute()
+    if not res.data:
+        raise HTTPException(500, "Failed to update auction settings")
+    
+    return res.data[0]
+
+
+# PUBLISH auction (set status to published)
+@app.post("/auctions/{auction_id}/publish")
+def publish_auction(auction_id: str):
+    """Publish an auction - makes it visible to public"""
+    auction = supabase.table("auctions").select("*").eq("auction_id", auction_id).execute()
+    if not auction.data:
+        raise HTTPException(404, "Auction not found")
+    
+    # Verify auction has required fields
+    auction_data = auction.data[0]
+    if not auction_data.get("start_time") or not auction_data.get("end_time"):
+        raise HTTPException(400, "Auction must have start and end times before publishing")
+    
+    res = supabase.table("auctions").update({"status": "published"}).eq("auction_id", auction_id).execute()
+    if not res.data:
+        raise HTTPException(500, "Failed to publish auction")
+    
+    return {"message": "Auction published successfully", "auction": res.data[0]}
+
+
+# CLOSE auction (set status to closed)
+@app.post("/auctions/{auction_id}/close")
+def close_auction(auction_id: str):
+    """Close an auction - no more bids accepted"""
+    auction = supabase.table("auctions").select("*").eq("auction_id", auction_id).execute()
+    if not auction.data:
+        raise HTTPException(404, "Auction not found")
+    
+    res = supabase.table("auctions").update({"status": "closed"}).eq("auction_id", auction_id).execute()
+    if not res.data:
+        raise HTTPException(500, "Failed to close auction")
+    
+    return {"message": "Auction closed successfully", "auction": res.data[0]}
+
+
+# GET public auction details (for public viewing)
+@app.get("/auctions/{auction_id}/public")
+def get_public_auction(auction_id: str):
+    """Get auction details for public viewing - includes items with bids"""
+    auction = supabase.table("auctions").select("*").eq("auction_id", auction_id).execute()
+    if not auction.data:
+        raise HTTPException(404, "Auction not found")
+    
+    auction_data = auction.data[0]
+    
+    # Only show listed items if auction is published or closed
+    # For draft auctions, show all items (for preview) but mark as preview
+    # For published/closed auctions, only show is_listed=true items
+    if auction_data.get("status") in ["published", "closed"]:
+        items = supabase.table("items").select("*").eq("auction_id", auction_id).eq("is_listed", True).order("created_at", desc=False).execute()
+    else:
+        # For draft/preview, show all items so seller can preview
+        items = supabase.table("items").select("*").eq("auction_id", auction_id).order("created_at", desc=False).execute()
+    
+    items_data = items.data if items.data else []
+    
+    # Get images for all items
+    if items_data:
+        item_ids = [item["item_id"] for item in items_data]
+        images = supabase.table("item_images").select("*").in_("item_id", item_ids).execute()
+        images_data = images.data if images.data else []
+        
+        # Group images by item_id
+        images_by_item = {}
+        for img in images_data:
+            iid = img["item_id"]
+            if iid not in images_by_item:
+                images_by_item[iid] = []
+            images_by_item[iid].append(img)
+        
+        # Batch fetch all bids for all items (instead of N+1 queries)
+        all_bids = supabase.table("bids").select("*").in_("item_id", item_ids).order("amount", desc=True).execute()
+        all_bids_data = all_bids.data if all_bids.data else []
+        
+        # Group bids by item_id and calculate highest bid + count
+        bids_by_item = {}
+        bid_counts = {}
+        for bid in all_bids_data:
+            iid = bid["item_id"]
+            if iid not in bids_by_item:
+                bids_by_item[iid] = bid  # First bid is highest (ordered desc)
+                bid_counts[iid] = 0
+            bid_counts[iid] += 1
+        
+        # Assign images and bid info to each item
+        for item in items_data:
+            item["images"] = images_by_item.get(item["item_id"], [])
+            
+            highest_bid = bids_by_item.get(item["item_id"])
+            if highest_bid:
+                item["current_bid"] = highest_bid["amount"]
+                item["bid_count"] = bid_counts.get(item["item_id"], 0)
+            else:
+                item["current_bid"] = item.get("starting_bid", 0) or 0
+                item["bid_count"] = 0
+    
+    return {
+        "auction": auction_data,
+        "items": items_data
+    }
+
+
+# GET all public auctions (published only)
+@app.get("/auctions/public")
+def list_public_auctions():
+    """List all published auctions for public browsing"""
+    auctions = supabase.table("auctions").select("*").eq("status", "published").order("created_at", desc=True).execute()
+    return {"auctions": auctions.data if auctions.data else []}
+
+
+# BATCH update item auction settings (must be before /items/{item_id}/auction-settings to avoid route conflict)
+@app.put("/items/batch/auction-settings")
+def batch_update_item_auction_settings(settings: BatchItemAuctionSettings):
+    """Batch update auction settings for multiple items"""
+    if not settings.item_ids:
+        raise HTTPException(400, "No items specified")
+    
+    updates = {}
+    if settings.starting_bid is not None:
+        updates["starting_bid"] = settings.starting_bid
+    if settings.min_increment is not None:
+        updates["min_increment"] = settings.min_increment
+    if settings.buy_now_price is not None:
+        updates["buy_now_price"] = settings.buy_now_price
+    if settings.is_listed is not None:
+        updates["is_listed"] = settings.is_listed
+    
+    if not updates:
+        raise HTTPException(400, "No settings to update")
+    
+    # Update all items in a single query using .in_() filter
+    res = supabase.table("items").update(updates).in_("item_id", settings.item_ids).execute()
+    updated_items = res.data if res.data else []
+    
+    return {
+        "message": f"Updated {len(updated_items)} items",
+        "items": updated_items
+    }
+
+
+# UPDATE item auction settings
+@app.put("/items/{item_id}/auction-settings")
+def update_item_auction_settings(item_id: str, settings: ItemAuctionSettings):
+    """Update auction-specific settings for an item"""
+    item = supabase.table("items").select("item_id").eq("item_id", item_id).execute()
+    if not item.data:
+        raise HTTPException(404, "Item not found")
+    
+    updates = {}
+    if settings.starting_bid is not None:
+        updates["starting_bid"] = settings.starting_bid
+    if settings.min_increment is not None:
+        updates["min_increment"] = settings.min_increment
+    if settings.buy_now_price is not None:
+        updates["buy_now_price"] = settings.buy_now_price
+    if settings.lot is not None:
+        updates["lot"] = settings.lot
+    if settings.is_listed is not None:
+        updates["is_listed"] = settings.is_listed
+    
+    if not updates:
+        raise HTTPException(400, "No settings to update")
+    
+    res = supabase.table("items").update(updates).eq("item_id", item_id).execute()
+    if not res.data:
+        raise HTTPException(500, "Failed to update item auction settings")
+    
+    return res.data[0]
+
+
+# PLACE a bid on an item
+@app.post("/items/{item_id}/bid")
+def place_bid(item_id: str, bid: BidRequest):
+    """Place a bid on an item"""
+    # Get item and verify it exists
+    item = supabase.table("items").select("*, auctions(*)").eq("item_id", item_id).execute()
+    if not item.data:
+        raise HTTPException(404, "Item not found")
+    
+    item_data = item.data[0]
+    auction_data = item_data.get("auctions", {})
+    
+    # Check auction is published
+    if auction_data.get("status") != "published":
+        raise HTTPException(400, "Auction is not active")
+    
+    # Check auction hasn't ended
+    from datetime import datetime
+    end_time = auction_data.get("end_time")
+    if end_time:
+        try:
+            end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+            if datetime.now(end_dt.tzinfo) > end_dt:
+                raise HTTPException(400, "Auction has ended")
+        except ValueError:
+            pass
+    
+    # Check item isn't sold
+    if item_data.get("is_sold"):
+        raise HTTPException(400, "Item has already been sold")
+    
+    # Get current highest bid
+    current_bids = supabase.table("bids").select("*").eq("item_id", item_id).order("amount", desc=True).limit(1).execute()
+    
+    starting_bid = item_data.get("starting_bid", 0) or 0
+    min_increment = item_data.get("min_increment", 1) or 1
+    
+    # If there are existing bids, new bid must be higher than current + increment
+    # If no bids yet, allow bidding at exactly the starting bid
+    if current_bids.data:
+        current_highest = current_bids.data[0]["amount"]
+        min_required = current_highest + min_increment
+    else:
+        # No bids yet - allow the starting bid amount
+        min_required = starting_bid
+    
+    if bid.bid_amount < min_required:
+        raise HTTPException(400, f"Bid must be at least ${min_required:.2f}")
+    
+    # Generate a UUID for guest bidders based on their email (consistent per email)
+    import hashlib
+    # Create a deterministic UUID from email so same bidder gets same ID
+    email_hash = hashlib.md5(bid.bidder_email.lower().encode()).hexdigest()
+    guest_bidder_id = f"{email_hash[:8]}-{email_hash[8:12]}-{email_hash[12:16]}-{email_hash[16:20]}-{email_hash[20:32]}"
+    
+    # Insert bid
+    bid_result = supabase.table("bids").insert({
+        "item_id": item_id,
+        "bidder_id": guest_bidder_id,
+        "bidder_email": bid.bidder_email,
+        "bidder_name": bid.bidder_name,
+        "amount": bid.bid_amount
+    }).execute()
+    
+    if not bid_result.data:
+        raise HTTPException(500, "Failed to place bid")
+    
+    # Update item's current_bid
+    supabase.table("items").update({"current_bid": bid.bid_amount}).eq("item_id", item_id).execute()
+    
+    return {
+        "message": "Bid placed successfully",
+        "bid": bid_result.data[0],
+        "current_highest": bid.bid_amount
+    }
+
+
+# BUY NOW - purchase item immediately
+@app.post("/items/{item_id}/buy-now")
+def buy_now(item_id: str, purchase: BuyNowRequest):
+    """Purchase an item at buy now price"""
+    from datetime import datetime, timezone
+    
+    # Get item
+    item = supabase.table("items").select("*, auctions(*)").eq("item_id", item_id).execute()
+    if not item.data:
+        raise HTTPException(404, "Item not found")
+    
+    item_data = item.data[0]
+    auction_data = item_data.get("auctions", {})
+    
+    # Check auction is published
+    if auction_data.get("status") != "published":
+        raise HTTPException(400, "Auction is not active")
+    
+    # Check item isn't already sold
+    if item_data.get("is_sold"):
+        raise HTTPException(400, "Item has already been sold")
+    
+    # Check buy now price exists
+    buy_now_price = item_data.get("buy_now_price")
+    if not buy_now_price:
+        raise HTTPException(400, "Buy now not available for this item")
+    
+    # Create order (note: buyer_id is required, we'll generate a placeholder UUID)
+    order_result = supabase.table("orders").insert({
+        "item_id": item_id,
+        "auction_id": item_data.get("auction_id"),
+        "buyer_id": "00000000-0000-0000-0000-000000000000",  # Placeholder for guest buyers
+        "buyer_email": purchase.buyer_email,
+        "buyer_name": purchase.buyer_name,
+        "amount": buy_now_price,
+        "order_type": "buy_now"
+    }).execute()
+    
+    if not order_result.data:
+        raise HTTPException(500, "Failed to create order")
+    
+    # Mark item as sold
+    supabase.table("items").update({
+        "is_sold": True,
+        "sold_at": datetime.now(timezone.utc).isoformat()
+    }).eq("item_id", item_id).execute()
+    
+    return {
+        "message": "Purchase successful",
+        "order": order_result.data[0]
+    }
+
+
+# GET bids for an item
+@app.get("/items/{item_id}/bids")
+def get_item_bids(item_id: str):
+    """Get all bids for an item"""
+    item = supabase.table("items").select("item_id").eq("item_id", item_id).execute()
+    if not item.data:
+        raise HTTPException(404, "Item not found")
+    
+    bids = supabase.table("bids").select("*").eq("item_id", item_id).order("amount", desc=True).execute()
+    
+    return {
+        "item_id": item_id,
+        "bids": bids.data if bids.data else []
+    }
+
+
+# GET all bids for an auction (for seller bid tracking)
+@app.get("/auctions/{auction_id}/all-bids")
+def get_auction_bids(auction_id: str):
+    """Get all bids for all items in an auction - for seller to track bidding"""
+    # Verify auction exists
+    auction = supabase.table("auctions").select("auction_id, auction_name, status").eq("auction_id", auction_id).execute()
+    if not auction.data:
+        raise HTTPException(404, "Auction not found")
+    
+    # Get all items for this auction (use 'title' not 'name')
+    items = supabase.table("items").select("item_id, title, starting_bid, min_increment, is_sold, buy_now_price, is_listed").eq("auction_id", auction_id).execute()
+    
+    if not items.data:
+        return {"auction": auction.data[0], "items_with_bids": []}
+    
+    items_with_bids = []
+    for item in items.data:
+        # Get bids for this item
+        bids = supabase.table("bids").select("*").eq("item_id", item["item_id"]).order("amount", desc=True).execute()
+        items_with_bids.append({
+            **item,
+            "name": item.get("title", "Untitled"),  # Map title to name for frontend
+            "bids": bids.data if bids.data else [],
+            "bid_count": len(bids.data) if bids.data else 0,
+            "highest_bid": bids.data[0]["amount"] if bids.data else None
+        })
+    
+    return {
+        "auction": auction.data[0],
+        "items_with_bids": items_with_bids
+    }
+
+
+# GET single order
+@app.get("/orders/{order_id}")
+def get_order(order_id: str):
+    """Get order details"""
+    order = supabase.table("orders").select("*, items(*)").eq("order_id", order_id).execute()
+    if not order.data:
+        raise HTTPException(404, "Order not found")
+    
+    return order.data[0]
+
+
+# GET orders for a user (by email)
+@app.get("/orders")
+def list_orders(buyer_email: str = None, auction_id: str = None):
+    """List orders by buyer email or auction"""
+    query = supabase.table("orders").select("*, items(*)")
+    
+    if buyer_email:
+        query = query.eq("buyer_email", buyer_email)
+    if auction_id:
+        query = query.eq("auction_id", auction_id)
+    
+    orders = query.order("created_at", desc=True).execute()
+    
+    return {"orders": orders.data if orders.data else []}
 
 
 if __name__ == "__main__":

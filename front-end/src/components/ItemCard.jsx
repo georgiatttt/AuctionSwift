@@ -1,15 +1,33 @@
+import { useState } from 'react';
 import { Badge } from './ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Separator } from './ui/separator';
 import { Button } from './ui/button';
 import * as XLSX from 'xlsx';
-import { Trash2 } from 'lucide-react';
+import { Trash2, ChevronLeft, ChevronRight, ImageIcon } from 'lucide-react';
 import { useAuction } from '../context/AuctionContext';
 import { ActionTypes } from '../context/AuctionContext';
 import { deleteItem } from '../services/api';
 
+// Format date to American style (MM/DD/YYYY)
+const formatDateAmerican = (dateString) => {
+  if (!dateString) return '';
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return dateString; // Return original if invalid
+    return date.toLocaleDateString('en-US', {
+      month: '2-digit',
+      day: '2-digit',
+      year: 'numeric'
+    });
+  } catch {
+    return dateString;
+  }
+};
+
 export function ItemCard({ item }) {
   const { state, dispatch } = useAuction();
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   const handleDelete = async () => {
     try {
@@ -24,11 +42,24 @@ export function ItemCard({ item }) {
     }
   };
 
-  // Get the first image for this item
-  const itemImage = state.itemImages.find(img => img.item_id === item.item_id);
+  // Get all images for this item, sorted by position
+  const itemImages = state.itemImages
+    .filter(img => img.item_id === item.item_id)
+    .sort((a, b) => (a.position || 0) - (b.position || 0));
+  
+  // Ensure index is within bounds
+  const safeIndex = itemImages.length > 0 ? Math.min(currentImageIndex, itemImages.length - 1) : 0;
   
   // Get comps for this item
   const itemComps = state.comps.filter(comp => comp.item_id === item.item_id);
+
+  const goToPrevious = () => {
+    setCurrentImageIndex((prev) => (prev === 0 ? itemImages.length - 1 : prev - 1));
+  };
+
+  const goToNext = () => {
+    setCurrentImageIndex((prev) => (prev === itemImages.length - 1 ? 0 : prev + 1));
+  };
 
   const handleExport = () => {
     try {
@@ -86,18 +117,46 @@ export function ItemCard({ item }) {
   return (
     <Card className="overflow-hidden">
       <div className="flex flex-col md:flex-row h-full">
-        {/* Image Section */}
-        <div className="w-full md:w-64 md:min-h-full bg-muted flex items-center justify-center shrink-0 p-4">
-          {itemImage ? (
-            <div className="w-full h-full flex items-center justify-center">
+        {/* Image Section with Carousel */}
+        <div className="w-full md:w-64 md:min-h-full bg-muted flex items-center justify-center shrink-0 relative group p-4">
+          {itemImages.length > 0 ? (
+            <>
               <img
-                src={itemImage.url}
+                src={itemImages[safeIndex].url}
                 alt={item.title}
                 className="max-w-full max-h-full object-contain"
               />
-            </div>
+              
+              {/* Navigation Arrows - only show if more than 1 image */}
+              {itemImages.length > 1 && (
+                <>
+                  <button
+                    onClick={goToPrevious}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label="Previous image"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={goToNext}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label="Next image"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+                  
+                  {/* Image Counter */}
+                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-2 py-1 rounded-full">
+                    {safeIndex + 1} / {itemImages.length}
+                  </div>
+                </>
+              )}
+            </>
           ) : (
-            <div className="text-muted-foreground text-sm">No image</div>
+            <div className="text-muted-foreground text-sm flex flex-col items-center gap-2 p-4">
+              <ImageIcon className="w-8 h-8 opacity-50" />
+              No image
+            </div>
           )}
         </div>
 
@@ -160,7 +219,7 @@ export function ItemCard({ item }) {
                               {comp.source}
                             </Badge>
                           </a>
-                          <span className="text-muted-foreground text-xs">{comp.sold_at}</span>
+                          <span className="text-muted-foreground text-xs">{formatDateAmerican(comp.sold_at)}</span>
                         </div>
                         <span className="font-semibold text-sm">
                           {comp.currency} ${comp.sold_price.toFixed(2)}

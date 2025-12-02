@@ -1,9 +1,14 @@
 // Supabase client setup - handles authentication and database connection
 import { createClient } from '@supabase/supabase-js';
 
-// Supabase project credentials (these are public keys, not secrets)
-const supabaseUrl = 'https://eupvkesgchaanbatzpuo.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1cHZrZXNnY2hhYW5iYXR6cHVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk1NTg1ODcsImV4cCI6MjA3NTEzNDU4N30.dkiBmXaN9zhXkS52Fld0a_OeJkcQTMOy7rqQHjATR_I';
+// Get Supabase credentials from environment variables
+// These are public anon keys (safe for frontend), NOT service role keys
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_PUBLIC;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('Missing Supabase environment variables. Check VITE_SUPABASE_URL and VITE_SUPABASE_PUBLIC');
+}
 
 // Create and export the Supabase client
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);

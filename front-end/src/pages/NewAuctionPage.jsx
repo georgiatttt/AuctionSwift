@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { ActionTypes, useAuction } from '../context/AuctionContext';
+import { useAuth } from '../context/AuthContext';
 import { createAuction } from '../services/api';
 
 export function NewAuctionPage() {
@@ -12,6 +13,7 @@ export function NewAuctionPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const { dispatch } = useAuction();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -21,16 +23,17 @@ export function NewAuctionPage() {
       return;
     }
 
+    if (!user) {
+      setError('You must be logged in to create an auction');
+      return;
+    }
+
     setLoading(true);
     setError('');
 
     try {
-      // TODO: Get profile_id from auth context when user login is implemented
-      // For demo, using a hardcoded profile_id - replace with actual logged-in user
-      const DEMO_PROFILE_ID = '50b07313-7b97-42c4-b020-5f8085483ea9';
-      
-      // Call the backend API to create auction
-      const auction = await createAuction(DEMO_PROFILE_ID, auctionName.trim());
+      // Use the authenticated user's ID from Supabase Auth
+      const auction = await createAuction(user.id, auctionName.trim());
       
       // Update local state
       dispatch({
@@ -39,6 +42,7 @@ export function NewAuctionPage() {
           auction_id: auction.auction_id,
           auction_name: auction.auction_name,
           profile_id: auction.profile_id,
+          status: auction.status || 'draft',
           created_at: auction.created_at
         }
       });

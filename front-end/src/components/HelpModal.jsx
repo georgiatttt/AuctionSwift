@@ -108,7 +108,7 @@ export function HelpModal({ open, onOpenChange }) {
                   </Button>
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  <p>support@auctionswift.com</p>
+                  <p>support@estatebid.com</p>
                   <p>Mon-Fri, 9am-5pm EST</p>
                 </div>
               </CardContent>

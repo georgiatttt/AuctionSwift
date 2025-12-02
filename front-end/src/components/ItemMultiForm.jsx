@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Trash2, Sparkles } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { Input } from './ui/input';
@@ -7,7 +7,7 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { ImageUploadZone } from './ImageUploadZone';
 import { ActionTypes, useAuction } from '../context/AuctionContext';
-import { createItem, generateComps, generateItemDescription, updateItemImage, createCompsBatch, getBatchStatus, getBatchResults } from '../services/api';
+import { createItem, generateComps, generateItemDescription, updateItemImage, addItemImages, createCompsBatch, getBatchStatus, getBatchResults } from '../services/api';
 import { uploadItemImage } from '../services/storage';
 
 export function ItemMultiForm({ auctionId }) {
@@ -150,16 +150,26 @@ export function ItemMultiForm({ auctionId }) {
           ? uploadedImages[0] 
           : 'https://via.placeholder.com/400x300?text=No+Image';
         
-        // Update the item's image URL in the backend
+        // Update the item's first image URL in the backend
         try {
           const imageId = createdItem.images[0].image_id; // Get the first image ID
           await updateItemImage(itemId, imageId, finalImageUrl);
         } catch (uploadError) {
-          console.error(`Failed to upload image for item ${itemId}:`, uploadError);
-          // Continue with placeholder if upload fails
+          console.error(`Failed to update first image for item ${itemId}:`, uploadError);
         }
 
-        createdItems.push({ ...createdItem, finalImageUrl });
+        // Add additional images (2nd, 3rd, 4th, 5th) to the database
+        if (uploadedImages.length > 1) {
+          try {
+            const additionalUrls = uploadedImages.slice(1); // All images except the first
+            await addItemImages(itemId, additionalUrls);
+            console.log(`Added ${additionalUrls.length} additional images for item ${itemId}`);
+          } catch (addImgError) {
+            console.error(`Failed to add additional images for item ${itemId}:`, addImgError);
+          }
+        }
+
+        createdItems.push({ ...createdItem, finalImageUrl, allImages: uploadedImages });
 
         // Update local state with the created item
         dispatch({
@@ -176,14 +186,16 @@ export function ItemMultiForm({ auctionId }) {
           }
         });
 
-        // Add images to state (use the final uploaded URL)
-        dispatch({
-          type: ActionTypes.ADD_ITEM_IMAGE,
-          payload: {
-            item_id: itemId,
-            url: finalImageUrl,
-            position: 1
-          }
+        // Add ALL images to state
+        uploadedImages.forEach((imgUrl, index) => {
+          dispatch({
+            type: ActionTypes.ADD_ITEM_IMAGE,
+            payload: {
+              item_id: itemId,
+              url: imgUrl,
+              position: index + 1
+            }
+          });
         });
       }
 
@@ -214,64 +226,30 @@ export function ItemMultiForm({ auctionId }) {
               if (result.success && result.comps) {
                 const comps = result.comps;
                 
-                // Process comp_1
-                if (comps.comp_1 && comps.comp_1.source !== 'none') {
-                  const price = parseFloat(comps.comp_1.price.replace(/[^0-9.]/g, '')) || 0;
-                  dispatch({
-                    type: ActionTypes.ADD_COMP,
-                    payload: {
-                      item_id: result.item_id,
-                      source: comps.comp_1.source,
-                      source_url: comps.comp_1.url,
-                      sold_price: price,
-                      currency: 'USD',
-                      sold_at: comps.comp_1.sale_date,
-                      notes: comps.comp_1.notes
-                    }
-                  });
-                  totalCompsAdded++;
-                }
-                
-                // Process comp_2
-                if (comps.comp_2 && comps.comp_2.source !== 'none') {
-                  const price = parseFloat(comps.comp_2.price.replace(/[^0-9.]/g, '')) || 0;
-                  dispatch({
-                    type: ActionTypes.ADD_COMP,
-                    payload: {
-                      item_id: result.item_id,
-                      source: comps.comp_2.source,
-                      source_url: comps.comp_2.url,
-                      sold_price: price,
-                      currency: 'USD',
-                      sold_at: comps.comp_2.sale_date,
-                      notes: comps.comp_2.notes
-                    }
-                  });
-                  totalCompsAdded++;
-                }
-                
-                // Process comp_3
-                if (comps.comp_3 && comps.comp_3.source !== 'none') {
-                  const price = parseFloat(comps.comp_3.price.replace(/[^0-9.]/g, '')) || 0;
-                  dispatch({
-                    type: ActionTypes.ADD_COMP,
-                    payload: {
-                      item_id: result.item_id,
-                      source: comps.comp_3.source,
-                      source_url: comps.comp_3.url,
-                      sold_price: price,
-                      currency: 'USD',
-                      sold_at: comps.comp_3.sale_date,
-                      notes: comps.comp_3.notes
-                    }
-                  });
-                  totalCompsAdded++;
-                }
+                // Process all 3 comps using a loop
+                ['comp_1', 'comp_2', 'comp_3'].forEach(compKey => {
+                  const comp = comps[compKey];
+                  if (comp && comp.source !== 'none') {
+                    const price = parseFloat(comp.price.replace(/[^0-9.]/g, '')) || 0;
+                    dispatch({
+                      type: ActionTypes.ADD_COMP,
+                      payload: {
+                        item_id: result.item_id,
+                        source: comp.source,
+                        source_url: comp.url,
+                        sold_price: price,
+                        currency: 'USD',
+                        sold_at: comp.sale_date,
+                        notes: comp.notes
+                      }
+                    });
+                    totalCompsAdded++;
+                  }
+                });
               }
             });
           } else {
-            console.error(`❌ Batch ended with status: ${batchStatus}`);
-            alert(`Batch processing ${batchStatus}. Some comps may not have been generated.`);
+            console.error(`❌ Batch returned invalid response`);
           }
           
         } catch (batchError) {
@@ -338,62 +316,26 @@ export function ItemMultiForm({ auctionId }) {
             if (compsResponse.success && compsResponse.comps) {
               const comps = compsResponse.comps;
               
-              // Process comp_1
-              if (comps.comp_1 && comps.comp_1.source !== 'none') {
-                const price = parseFloat(comps.comp_1.price.replace(/[^0-9.]/g, '')) || 0;
-                
-                dispatch({
-                  type: ActionTypes.ADD_COMP,
-                  payload: {
-                    item_id: item.item_id,
-                    source: comps.comp_1.source,
-                    source_url: comps.comp_1.url,
-                    sold_price: price,
-                    currency: 'USD',
-                    sold_at: comps.comp_1.sale_date,
-                    notes: comps.comp_1.notes
-                  }
-                });
-                totalCompsAdded++;
-              }
-              
-              // Process comp_2
-              if (comps.comp_2 && comps.comp_2.source !== 'none') {
-                const price = parseFloat(comps.comp_2.price.replace(/[^0-9.]/g, '')) || 0;
-                
-                dispatch({
-                  type: ActionTypes.ADD_COMP,
-                  payload: {
-                    item_id: item.item_id,
-                    source: comps.comp_2.source,
-                    source_url: comps.comp_2.url,
-                    sold_price: price,
-                    currency: 'USD',
-                    sold_at: comps.comp_2.sale_date,
-                    notes: comps.comp_2.notes
-                  }
-                });
-                totalCompsAdded++;
-              }
-              
-              // Process comp_3
-              if (comps.comp_3 && comps.comp_3.source !== 'none') {
-                const price = parseFloat(comps.comp_3.price.replace(/[^0-9.]/g, '')) || 0;
-                
-                dispatch({
-                  type: ActionTypes.ADD_COMP,
-                  payload: {
-                    item_id: item.item_id,
-                    source: comps.comp_3.source,
-                    source_url: comps.comp_3.url,
-                    sold_price: price,
-                    currency: 'USD',
-                    sold_at: comps.comp_3.sale_date,
-                    notes: comps.comp_3.notes
-                  }
-                });
-                totalCompsAdded++;
-              }
+              // Process all 3 comps using a loop (same as batch processing)
+              ['comp_1', 'comp_2', 'comp_3'].forEach(compKey => {
+                const comp = comps[compKey];
+                if (comp && comp.source !== 'none') {
+                  const price = parseFloat(comp.price.replace(/[^0-9.]/g, '')) || 0;
+                  dispatch({
+                    type: ActionTypes.ADD_COMP,
+                    payload: {
+                      item_id: item.item_id,
+                      source: comp.source,
+                      source_url: comp.url,
+                      sold_price: price,
+                      currency: 'USD',
+                      sold_at: comp.sale_date,
+                      notes: comp.notes
+                    }
+                  });
+                  totalCompsAdded++;
+                }
+              });
             } else {
               console.warn(`No comps generated for item ${item.item_id}`);
             }

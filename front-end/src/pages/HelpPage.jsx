@@ -117,7 +117,7 @@ export function HelpPage() {
             </Button>
           </div>
           <div className="text-sm text-muted-foreground">
-            <p>Email: support@auctionswift.com</p>
+            <p>Email: support@estatebid.com</p>
             <p>Hours: Monday - Friday, 9am - 5pm EST</p>
           </div>
         </CardContent>

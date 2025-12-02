@@ -52,7 +52,7 @@ export function SignUpPage() {
   return (
     <AuthLayout
       title="Create your account"
-      subtitle="Join AuctionSwift to start managing your listings"
+      subtitle="Join EstateBid to start managing your listings"
     >
       {error && (
         <div className="mb-4 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700">

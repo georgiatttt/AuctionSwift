@@ -125,6 +125,26 @@ export const updateItemImage = async (itemId, imageId, url) => {
   return handleResponse(response);
 };
 
+// Add additional images to an existing item
+export const addItemImages = async (itemId, urls) => {
+  const response = await fetch(`${API_BASE_URL}/items/${itemId}/images`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ urls }),
+  });
+  return handleResponse(response);
+};
+
+// Set an image as primary
+export const setImagePrimary = async (itemId, imageId) => {
+  const response = await fetch(`${API_BASE_URL}/items/${itemId}/images/${imageId}/primary`, {
+    method: 'PUT',
+  });
+  return handleResponse(response);
+};
+
 // ============================================
 // COMPS API
 // ============================================
@@ -150,12 +170,6 @@ export const generateComps = async (itemId, brand = null, model = null, year = n
 // Get saved comps for an item
 export const getSavedComps = async (itemId) => {
   const response = await fetch(`${API_BASE_URL}/comps/${itemId}`);
-  return handleResponse(response);
-};
-
-// Legacy 130point scraper endpoint (deprecated, use generateComps instead)
-export const getItemComps = async (itemId, limit = 10) => {
-  const response = await fetch(`${API_BASE_URL}/items/${itemId}/comps?limit=${limit}`);
   return handleResponse(response);
 };
 
@@ -208,8 +222,9 @@ export const updateUserEmail = async (profileId, email) => {
 export const createCompsBatch = async (items) => {
   /**
    * Create a batch job for generating comps for multiple items
+   * Now runs synchronously and returns all results immediately
    * @param {Array} items - Array of {item_id, brand, model, year, notes}
-   * @returns {Promise} - Batch job info with batch_id
+   * @returns {Promise} - Batch results with all comps
    */
   const response = await fetch(`${API_BASE_URL}/comps/batch`, {
     method: 'POST',
@@ -221,33 +236,23 @@ export const createCompsBatch = async (items) => {
   return handleResponse(response);
 };
 
+// NOTE: The following batch functions are not currently used since batch is now synchronous
+// Keeping them for potential future use with async batch processing
+
 export const getBatchStatus = async (batchId) => {
-  /**
-   * Check the status of a batch comps generation job
-   * @param {string} batchId - The batch job ID
-   * @returns {Promise} - Batch status info
-   */
+  /** @deprecated - Batch processing is now synchronous */
   const response = await fetch(`${API_BASE_URL}/comps/batch/${batchId}`);
   return handleResponse(response);
 };
 
 export const getBatchResults = async (batchId, saveToDb = true) => {
-  /**
-   * Retrieve results from a completed batch job
-   * @param {string} batchId - The batch job ID
-   * @param {boolean} saveToDb - Whether to save comps to database
-   * @returns {Promise} - Batch results with all comps
-   */
+  /** @deprecated - Batch processing is now synchronous */
   const response = await fetch(`${API_BASE_URL}/comps/batch/${batchId}/results?save_to_db=${saveToDb}`);
   return handleResponse(response);
 };
 
 export const cancelBatch = async (batchId) => {
-  /**
-   * Cancel an in-progress batch job
-   * @param {string} batchId - The batch job ID
-   * @returns {Promise} - Cancellation confirmation
-   */
+  /** @deprecated - Batch processing is now synchronous */
   const response = await fetch(`${API_BASE_URL}/comps/batch/${batchId}`, {
     method: 'DELETE',
   });
@@ -258,6 +263,143 @@ export const makePayment = async (profileId) => {
   const response = await fetch(`${API_BASE_URL}/payments?profile_id=${profileId}`, {
     method: 'POST',
   });
+  return handleResponse(response);
+};
+
+// ============================================
+// BIDDING SYSTEM API
+// ============================================
+
+// Update auction settings (start/end time, defaults)
+export const updateAuctionSettings = async (auctionId, settings) => {
+  const response = await fetch(`${API_BASE_URL}/auctions/${auctionId}/settings`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(settings),
+  });
+  return handleResponse(response);
+};
+
+// Publish an auction
+export const publishAuction = async (auctionId) => {
+  const response = await fetch(`${API_BASE_URL}/auctions/${auctionId}/publish`, {
+    method: 'POST',
+  });
+  return handleResponse(response);
+};
+
+// Close an auction
+export const closeAuction = async (auctionId) => {
+  const response = await fetch(`${API_BASE_URL}/auctions/${auctionId}/close`, {
+    method: 'POST',
+  });
+  return handleResponse(response);
+};
+
+// Get public auction details (with items and bids)
+export const getPublicAuction = async (auctionId) => {
+  const response = await fetch(`${API_BASE_URL}/auctions/${auctionId}/public`);
+  return handleResponse(response);
+};
+
+// List all public auctions
+export const listPublicAuctions = async () => {
+  const response = await fetch(`${API_BASE_URL}/auctions/public`);
+  return handleResponse(response);
+};
+
+// Update item auction settings
+export const updateItemAuctionSettings = async (itemId, settings) => {
+  const response = await fetch(`${API_BASE_URL}/items/${itemId}/auction-settings`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(settings),
+  });
+  return handleResponse(response);
+};
+
+// Batch update item auction settings
+export const batchUpdateItemAuctionSettings = async (itemIds, settings) => {
+  const response = await fetch(`${API_BASE_URL}/items/batch/auction-settings`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      item_ids: itemIds,
+      starting_bid: settings.starting_bid,
+      min_increment: settings.min_increment,
+      buy_now_price: settings.buy_now_price,
+      is_listed: settings.is_listed,
+    }),
+  });
+  return handleResponse(response);
+};
+
+// Place a bid on an item
+export const placeBid = async (itemId, bidderEmail, bidderName, bidAmount) => {
+  const response = await fetch(`${API_BASE_URL}/items/${itemId}/bid`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      bidder_email: bidderEmail,
+      bidder_name: bidderName,
+      bid_amount: bidAmount,
+    }),
+  });
+  return handleResponse(response);
+};
+
+// Buy now - purchase item immediately
+// NOTE: Currently not used in frontend - placeBid with buy_now_price handles this
+export const buyNow = async (itemId, buyerEmail, buyerName) => {
+  const response = await fetch(`${API_BASE_URL}/items/${itemId}/buy-now`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      buyer_email: buyerEmail,
+      buyer_name: buyerName,
+    }),
+  });
+  return handleResponse(response);
+};
+
+// Get bids for an item
+export const getItemBids = async (itemId) => {
+  const response = await fetch(`${API_BASE_URL}/items/${itemId}/bids`);
+  return handleResponse(response);
+};
+
+// Get all bids for all items in an auction (for seller bid tracking)
+export const getAuctionBids = async (auctionId) => {
+  const response = await fetch(`${API_BASE_URL}/auctions/${auctionId}/all-bids`);
+  return handleResponse(response);
+};
+
+// Get order details
+// NOTE: Orders feature not fully implemented in frontend yet
+export const getOrder = async (orderId) => {
+  const response = await fetch(`${API_BASE_URL}/orders/${orderId}`);
+  return handleResponse(response);
+};
+
+// List orders by buyer email or auction
+// NOTE: Orders feature not fully implemented in frontend yet
+export const listOrders = async (buyerEmail = null, auctionId = null) => {
+  const params = new URLSearchParams();
+  if (buyerEmail) params.append('buyer_email', buyerEmail);
+  if (auctionId) params.append('auction_id', auctionId);
+  
+  const queryString = params.toString() ? `?${params.toString()}` : '';
+  const response = await fetch(`${API_BASE_URL}/orders${queryString}`);
   return handleResponse(response);
 };
 

@@ -120,12 +120,19 @@ export function ImageUploadZone({ images = [], onChange, disabled = false }) {
     }
   }, [images, onChange]);
 
-  // Make image primary
+  // Make image primary - moves the selected image to the front of the array
   const handleMakePrimary = useCallback((imageId) => {
-    const newImages = images.map(img => ({
-      ...img,
-      isPrimary: img.id === imageId
-    }));
+    // Find the image to make primary
+    const imageToMakePrimary = images.find(img => img.id === imageId);
+    if (!imageToMakePrimary) return;
+    
+    // Reorder: put the selected image first, then all others
+    const otherImages = images.filter(img => img.id !== imageId);
+    const newImages = [
+      { ...imageToMakePrimary, isPrimary: true },
+      ...otherImages.map(img => ({ ...img, isPrimary: false }))
+    ];
+    
     onChange(newImages);
   }, [images, onChange]);
 
